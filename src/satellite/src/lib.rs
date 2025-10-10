@@ -1,12 +1,8 @@
 use junobuild_macros::{
-    assert_delete_doc, assert_set_doc, on_delete_asset,
-    on_delete_doc, on_delete_filtered_assets, on_delete_filtered_docs,
-    on_delete_many_assets, on_delete_many_docs, on_set_doc, on_set_many_docs, on_upload_asset
+    assert_delete_doc, assert_set_doc, on_set_doc
 };
 use junobuild_satellite::{
-    include_satellite, AssertDeleteDocContext, AssertSetDocContext, OnDeleteAssetContext,
-    OnDeleteDocContext, OnDeleteFilteredAssetsContext, OnDeleteFilteredDocsContext,
-    OnDeleteManyAssetsContext, OnDeleteManyDocsContext, OnSetDocContext, OnSetManyDocsContext, OnUploadAssetContext
+    include_satellite, AssertDeleteDocContext, AssertSetDocContext, OnSetDocContext
 };
 
 mod admin_hooks;
@@ -162,47 +158,6 @@ fn assert_delete_doc(context: AssertDeleteDocContext) -> std::result::Result<(),
             Ok(())
         }
     }
-}
-
-// Default implementations for other hooks
-#[on_set_many_docs]
-fn on_set_many_docs(_context: OnSetManyDocsContext) -> std::result::Result<(), String> {
-    Ok(())
-}
-
-#[on_delete_asset]
-fn on_delete_asset(_context: OnDeleteAssetContext) -> std::result::Result<(), String> {
-    Ok(())
-}
-
-#[on_delete_doc]
-fn on_delete_doc(_context: OnDeleteDocContext) -> std::result::Result<(), String> {
-    Ok(())
-}
-
-#[on_delete_filtered_assets]
-fn on_delete_filtered_assets(_context: OnDeleteFilteredAssetsContext) -> std::result::Result<(), String> {
-    Ok(())
-}
-
-#[on_delete_filtered_docs]
-fn on_delete_filtered_docs(_context: OnDeleteFilteredDocsContext) -> std::result::Result<(), String> {
-    Ok(())
-}
-
-#[on_delete_many_assets]
-fn on_delete_many_assets(_context: OnDeleteManyAssetsContext) -> std::result::Result<(), String> {
-    Ok(())
-}
-
-#[on_delete_many_docs]
-fn on_delete_many_docs(_context: OnDeleteManyDocsContext) -> std::result::Result<(), String> {
-    Ok(())
-}
-
-#[on_upload_asset]
-fn on_upload_asset(_context: OnUploadAssetContext) -> std::result::Result<(), String> {
-    Ok(())
 }
 
 include_satellite!();
