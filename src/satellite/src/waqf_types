@@ -1,0 +1,110 @@
+// src/satellite/src/waqf_types.rs
+use serde::{Serialize, Deserialize};
+use junobuild_satellite::{Doc, Timestamp};
+use std::collections::HashMap;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum WaqfStatus {
+    Active,
+    Paused,
+    Completed
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")] 
+pub struct DonorProfile {
+    pub name: String,
+    pub email: String,
+    pub phone: String,
+    pub address: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FinancialMetrics {
+    pub total_donations: f64,
+    pub total_distributed: f64, 
+    pub current_balance: f64,
+    pub investment_returns: Vec<f64>,
+    pub total_investment_return: f64,
+    pub growth_rate: f64,
+    pub cause_allocations: HashMap<String, f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)] 
+#[serde(rename_all = "camelCase")]
+pub struct WaqfProfile {
+    pub id: String,
+    pub description: String,
+    pub donor: DonorProfile,
+    pub selected_causes: Vec<String>,
+    #[serde(rename = "causeAllocation")]
+    pub cause_allocation: HashMap<String, f64>,
+    pub waqf_assets: Vec<Donation>,
+    pub supported_causes: Vec<Cause>,
+    pub financial: FinancialMetrics,
+    pub reporting_preferences: ReportingPreferences,
+    pub status: WaqfStatus,
+    pub notifications: Notifications,
+    pub created_by: String,
+    pub created_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_contribution_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_contribution_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_report_date: Option<String>,
+}
+
+// Supporting types to match your TS definitions
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportingPreferences {
+    pub frequency: String, // "quarterly" | "semiannually" | "yearly"
+    pub report_types: Vec<String>, // ["financial", "impact"]
+    pub delivery_method: String, // "email" | "platform" | "both"
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")] 
+pub struct Notifications {
+    pub contribution_reminders: bool,
+    pub impact_reports: bool,
+    pub financial_updates: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Donation {
+    pub id: String,
+    pub date: String,
+    pub amount: f64,
+    pub currency: String,
+    pub status: String, // "completed" | "pending" | "failed"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocated_causes: Option<HashMap<String, f64>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Cause {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub icon: String,
+    pub category: String,
+    pub is_active: bool,
+    pub status: String, // "pending" | "approved" | "rejected"
+    pub sort_order: i32,
+    pub followers: i32,
+    pub funds_raised: f64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+pub type WaqfDoc = Doc<WaqfProfile>;
