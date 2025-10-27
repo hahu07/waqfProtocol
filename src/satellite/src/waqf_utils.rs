@@ -549,8 +549,20 @@ fn validate_waqf_update_permissions(current: &WaqfData, new: &WaqfData, result: 
     }
     
     // Check if trying to modify completed waqf inappropriately
+    // Allow financial updates (adding funds) to completed waqfs
     if current.status == "completed" && new.status != "archived" {
-        result.add_error(WaqfValidationError::CompletedWaqfModification);
+        // Check if only financial fields are changing (donations, balance)
+        let is_financial_only_update = 
+            current.name == new.name &&
+            current.description == new.description &&
+            current.waqf_asset == new.waqf_asset &&
+            current.donor == new.donor &&
+            current.selected_causes == new.selected_causes;
+        
+        // If non-financial fields are being modified, block the update
+        if !is_financial_only_update {
+            result.add_error(WaqfValidationError::CompletedWaqfModification);
+        }
     }
 }
 

@@ -4,7 +4,9 @@
 import { useAuth } from '@/components/auth/AuthProvider';
 import type { AdminManagerProps } from './types';
 import { useState } from 'react';
-import { FaCog, FaBell, FaSave, FaGlobe, FaLock, FaDatabase } from 'react-icons/fa';
+import { FaCog, FaBell, FaSave, FaGlobe, FaLock, FaDatabase, FaTags } from 'react-icons/fa';
+import { logger } from '@/lib/logger';
+import { CategoryManager } from './categoryManager';
 
 export function SettingManager({ 
   showHeader = true,
@@ -28,7 +30,7 @@ export function SettingManager({
 
   const handleSave = () => {
     // Here you would typically save to backend
-    console.log('Saving settings:', settings);
+    logger.debug('Saving settings:', { data: settings });
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
@@ -171,6 +173,27 @@ export function SettingManager({
             <FaSave className="w-4 h-4" />
             {saved ? '✓ Saved!' : 'Save Changes'}
           </button>
+        </div>
+      </div>
+
+      {/* Category Management Section */}
+      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+        <div 
+          className="p-6 text-white"
+          style={{ background: 'linear-gradient(135deg, #ec4899, #8b5cf6)' }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center backdrop-blur-sm">
+              <FaTags className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold">Category Management</h2>
+              <p className="text-sm text-white/80 mt-1">Manage main categories and subcategories for causes</p>
+            </div>
+          </div>
+        </div>
+        <div className="p-6">
+          <CategoryManager />
         </div>
       </div>
 

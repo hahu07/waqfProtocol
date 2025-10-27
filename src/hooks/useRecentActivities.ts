@@ -1,6 +1,7 @@
 // src/hooks/useRecentActivities.ts
 import { useState, useEffect } from 'react';
 import { getRecentActivities, type ActivityDoc, formatActivityTime, getActivityConfig } from '@/lib/activity-utils';
+import { logger } from '@/lib/logger';
 
 export interface FormattedActivity {
   id: string;
@@ -39,7 +40,7 @@ export const useRecentActivities = (limit: number = 10) => {
       
       setActivities(formattedActivities);
     } catch (err) {
-      console.error('Error fetching activities:', err);
+      logger.error('Error fetching activities', err instanceof Error ? err : { error: err });
       setError(err instanceof Error ? err.message : 'Failed to fetch activities');
       
       // Fallback to sample data if there's an error

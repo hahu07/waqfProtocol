@@ -3,7 +3,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { FaUsers, FaLandmark, FaFileAlt, FaCog } from 'react-icons/fa';
+import { FaUsers, FaLandmark, FaFileAlt, FaCog, FaMoneyBillWave } from 'react-icons/fa';
 import { Badge } from '@/components/ui/badge';
 import { useFetchWaqfData } from '@/hooks/useWaqfData';
 import { useRecentActivities } from '@/hooks/useRecentActivities';
@@ -88,6 +88,7 @@ export const AdminDashboard: React.FC<AdminManagerProps> = () => {
 
   const quickActions = [
     { label: 'Manage Users', icon: <FaUsers className="h-5 w-5" />, href: '/admin/users' },
+    { label: 'Distributions', icon: <FaMoneyBillWave className="h-5 w-5" />, href: '/admin/distributions' },
     { label: 'View Reports', icon: <FaFileAlt className="h-5 w-5" />, href: '/admin/reports' },
     { label: 'System Settings', icon: <FaCog className="h-5 w-5" />, href: '/admin/settings' },
   ];
@@ -278,10 +279,11 @@ export const AdminDashboard: React.FC<AdminManagerProps> = () => {
       {/* Quick Actions */}
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
-        <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-3">
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {quickActions.map((action, index) => {
             const gradients = [
               'linear-gradient(135deg, #2563eb, #9333ea)',
+              'linear-gradient(135deg, #10b981, #059669)',
               'linear-gradient(135deg, #9333ea, #4338ca)',
               'linear-gradient(135deg, #4338ca, #2563eb)',
             ];

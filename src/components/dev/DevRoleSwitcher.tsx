@@ -43,9 +43,6 @@ export function DevRoleSwitcher() {
   const [selectedRole, setSelectedRole] = useState<AdminRole>('platform_admin');
   const [isOpen, setIsOpen] = useState(false);
 
-  // Only show in development
-  if (process.env.NODE_ENV !== 'development') return null;
-
   useEffect(() => {
     // Load saved role from localStorage
     const savedRole = localStorage.getItem('dev-role-override') as AdminRole;
@@ -53,6 +50,9 @@ export function DevRoleSwitcher() {
       setSelectedRole(savedRole);
     }
   }, []);
+
+  // Only show in development
+  if (process.env.NODE_ENV !== 'development') return null;
 
   const handleRoleSwitch = async (role: AdminRole) => {
     setSelectedRole(role);

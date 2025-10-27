@@ -1,6 +1,7 @@
 // src/lib/auth-utils.ts
 import { onAuthStateChange, User } from '@junobuild/core';
 import { isAdmin } from './admin-utils';
+import { logger } from './logger';
 
 interface AuthStatus {
   isAuthenticated: boolean;
@@ -24,7 +25,7 @@ export const getAuthStatus = async (): Promise<AuthStatus> => {
       });
     });
   } catch (error) {
-    console.error('Failed to get auth status:', error);
+    logger.error('Failed to get auth status', { error });
     return { isAuthenticated: false, isAdmin: false };
   }
 };

@@ -5,6 +5,8 @@ import type { WaqfProfile, Cause, Donation, ReturnAllocation } from '@/types/waq
 import { useDebouncedCallback } from '@/lib/debounce';
 // Juno initialization now handled by AuthProvider
 import { listCauses } from '@/lib/cause-utils';
+import { randomUUID } from '@/lib/crypto-polyfill';
+import { logger } from '@/lib/logger';
 
 type WaqfData = {
   waqf: Doc<WaqfProfile> | null;
@@ -80,7 +82,7 @@ export function useFetchWaqfData(waqfId?: string) {
         throw new Error('network_offline');
       }
 
-      console.log('🔍 Fetching waqf data...', { waqfId });
+      logger.debug('🔍 Fetching waqf data...', { waqfId });
       
       const [waqf, waqfs, assets, apiAllocations, causes] = await Promise.all([
         waqfId ? getWaqf(waqfId).then(w => w ? { key: waqfId, data: w } : null) : Promise.resolve(null),
@@ -88,12 +90,12 @@ export function useFetchWaqfData(waqfId?: string) {
         waqfId ? getWaqfDonations(waqfId) : Promise.resolve([]),
         waqfId ? getWaqfAllocations(waqfId) : Promise.resolve([]),
         listCauses().catch(err => {
-          console.warn('⚠️ Failed to fetch causes:', err);
+          logger.warn('⚠️ Failed to fetch causes:', err);
           return [];
         })
       ]);
       
-      console.log('✅ Fetched waqf data:', { 
+      logger.debug('✅ Fetched waqf data:', { 
         waqf, 
         waqfsCount: waqfs.length, 
         waqfs,
@@ -108,7 +110,7 @@ export function useFetchWaqfData(waqfId?: string) {
         causes: causes,
         assets,
         allocations: transformAllocations(apiAllocations),
-        waqfs: waqfs.map(w => ({ key: crypto.randomUUID(), data: w }))
+        waqfs: waqfs.map(w => ({ key: randomUUID(), data: w }))
       });
       setWaqfError(null);
       

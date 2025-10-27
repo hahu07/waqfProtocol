@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { listActiveCauses } from '@/lib/cause-utils';
 import type { Cause } from '@/types/waqfs';
 import { toast } from 'sonner';
+import { logger } from '@/lib/logger';
 
 export default function CausesPage() {
   const [causes, setCauses] = useState<Cause[]>([]);
@@ -22,26 +23,24 @@ export default function CausesPage() {
     try {
       setLoading(true);
       
-      // First, let's try to get ALL causes to see what we have
+      // First, get ALL causes to see what we have
       const { listCauses } = await import('@/lib/cause-utils');
       const allCauses = await listCauses();
-      console.log('📊 ALL causes in database:', allCauses.length);
-      console.log('📋 All causes data:', allCauses);
+      logger.debug('ALL causes in database', { count: allCauses.length });
       setTotalCausesInDB(allCauses.length);
       
       // Now get only active ones
       const activeCauses = await listActiveCauses();
-      console.log('✅ Active & Approved causes:', activeCauses.length);
-      console.log('✅ Active causes data:', activeCauses);
+      logger.debug('Active & Approved causes', { count: activeCauses.length });
       
       // Show what was filtered out
       if (allCauses.length > activeCauses.length) {
         const filtered = allCauses.filter(c => !activeCauses.some(ac => ac.id === c.id));
-        console.log('🚫 Filtered out causes (not active or not approved):', filtered.length);
-        setFilteredOutCount(filtered.length);
-        filtered.forEach(cause => {
-          console.log(`   - ${cause.name}: isActive=${cause.isActive}, status=${cause.status}`);
+        logger.debug('Filtered out causes (not active or not approved)', { 
+          count: filtered.length,
+          causes: filtered.map(c => ({ name: c.name, isActive: c.isActive, status: c.status }))
         });
+        setFilteredOutCount(filtered.length);
       } else {
         setFilteredOutCount(0);
       }
@@ -54,11 +53,11 @@ export default function CausesPage() {
         return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       });
       setCauses(sorted);
-    } catch (error: any) {
-      console.error('❌ Error loading causes:', error);
+    } catch (error: unknown) {
+      logger.error('Error loading causes', { error });
       
       // Check if it's a collection not found error
-      const errorMessage = error?.message || String(error);
+      const errorMessage = (error as Error)?.message || String(error);
       if (errorMessage.includes('Collection') || errorMessage.includes('not found')) {
         toast.error('Causes collection not set up. Please contact administrator.');
       } else {
@@ -292,6 +291,55 @@ export default function CausesPage() {
                     .substring(0, 150) || 'Supporting meaningful charitable work'}...
                 </p>
 
+                  {/* Funding Progress */}
+                  {cause.targetAmount && (() => {
+                    const currency = cause.primaryCurrency || 'NGN';
+                    const rate = cause.exchangeRateToUSD || 1650;
+                    const isUSD = currency === 'USD';
+                    const getCurrencySymbol = (curr: string) => {
+                      switch(curr) {
+                        case 'NGN': return '₦';
+                        case 'EUR': return '€';
+                        case 'GBP': return '£';
+                        case 'SAR': return 'SR';
+                        case 'AED': return 'د.إ';
+                        default: return '$';
+                      }
+                    };
+                    const symbol = getCurrencySymbol(currency);
+                    const raised = cause.fundsRaised || 0;
+                    const target = cause.targetAmount;
+                    const percentage = Math.min(100, Math.round((raised / target) * 100));
+                    
+                    return (
+                      <div className="mb-5 bg-gradient-to-br from-green-50 to-blue-50 rounded-xl p-4 border border-green-100">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">🎯 Funding Progress</span>
+                          <span className="text-sm font-bold text-blue-600">{percentage}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-3 mb-2 overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-green-500 to-blue-500 h-3 rounded-full transition-all duration-500"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <div>
+                            <span className="text-gray-600">Raised: </span>
+                            <span className="font-bold text-green-600">{symbol}{raised.toLocaleString()}</span>
+                            {!isUSD && (
+                              <span className="text-gray-500 ml-1">(≈${(raised / rate).toLocaleString(undefined, {maximumFractionDigits: 0})})</span>
+                            )}
+                          </div>
+                          <div>
+                            <span className="text-gray-600">Goal: </span>
+                            <span className="font-bold text-blue-600">{symbol}{target.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {/* Stats Grid */}
                   <div className="grid grid-cols-2 gap-3 mb-5">
                     <div className="bg-blue-50 rounded-lg p-3 text-center border border-blue-100">
@@ -305,6 +353,29 @@ export default function CausesPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Waqf Types */}
+                  {cause.supportedWaqfTypes && cause.supportedWaqfTypes.length > 0 && (
+                    <div className="mb-5">
+                      <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">🏛️ Waqf Options</div>
+                      <div className="flex flex-wrap gap-2">
+                        {cause.supportedWaqfTypes.map((type: string) => (
+                          <span 
+                            key={type}
+                            className={`text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm border ${
+                              type === 'permanent' ? 'bg-green-50 text-green-700 border-green-200' :
+                              type === 'temporary_consumable' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                              'bg-purple-50 text-purple-700 border-purple-200'
+                            }`}
+                          >
+                            {type === 'permanent' ? '💎 Permanent' :
+                             type === 'temporary_consumable' ? '⚡ Consumable' :
+                             '🔄 Revolving'}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Impact Score */}
                   {cause.impactScore && (

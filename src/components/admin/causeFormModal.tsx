@@ -1,13 +1,16 @@
 // components/admin/CauseFormModal.tsx - FOR ADMINS ONLY
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/components/auth/AuthProvider';
-import type { Cause } from "@/types/waqfs";
+import type { Cause, Category, Subcategory } from "@/types/waqfs";
+import { WaqfType } from "@/types/waqfs";
 import { canApproveCauses, canManageCauses } from '@/lib/admin-utils';
+import { getCategories, getSubcategoriesByCategoryId } from '@/lib/categories';
 import MDEditor from '@uiw/react-md-editor';
 import rehypeSanitize from 'rehype-sanitize';
 import { useDropzone } from 'react-dropzone';
 import { uploadFile, listAssets } from '@junobuild/core';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '@/lib/logger';
 
 interface CauseFormModalProps {
   isOpen: boolean;
@@ -33,18 +36,45 @@ export const CauseFormModal = ({
     description: cause?.description || '',
     icon: cause?.icon || '❤️',
     coverImage: cause?.coverImage || '',
-    category: cause?.category || 'general',
-    isActive: cause?.isActive ?? false, // Default to false for new causes
+    categoryId: cause?.categoryId || '',
+    subcategoryId: cause?.subcategoryId || '',
+    category: cause?.category, // Legacy field for backward compatibility
+    isActive: cause?.isActive ?? false,
     sortOrder: cause?.sortOrder || 0,
-    status: cause?.status || 'pending', // Default to pending for new causes
+    status: cause?.status || 'pending',
     followers: cause?.followers || 0,
-    fundsRaised: cause?.fundsRaised || 0
+    fundsRaised: cause?.fundsRaised || 0,
+    targetAmount: cause?.targetAmount,
+    primaryCurrency: cause?.primaryCurrency || 'NGN',
+    exchangeRateToUSD: cause?.exchangeRateToUSD || 1650,
+    supportedWaqfTypes: cause?.supportedWaqfTypes || [WaqfType.PERMANENT],
+    investmentStrategy: cause?.investmentStrategy || {
+      assetAllocation: '60% Sukuk, 40% Equity',
+      expectedAnnualReturn: 7.0,
+      distributionFrequency: 'quarterly'
+    },
+    consumableOptions: cause?.consumableOptions || {
+      minDurationMonths: 6,
+      maxDurationMonths: 60,
+      defaultSpendingSchedule: 'phased'
+    },
+    revolvingOptions: cause?.revolvingOptions || {
+      minLockPeriodMonths: 12,
+      maxLockPeriodMonths: 120,
+      expectedReturnDuringPeriod: 35.0
+    }
   }));
 
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isCheckingCollection, setIsCheckingCollection] = useState(false);
+  
+  // Dynamic categories state
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
+  const [loadingSubcategories, setLoadingSubcategories] = useState(false);
 
   // Check permissions
   useEffect(() => {
@@ -59,6 +89,42 @@ export const CauseFormModal = ({
     checkPermissions();
   }, [user]);
 
+  // Load categories on mount
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        setLoadingCategories(true);
+        const cats = await getCategories();
+        setCategories(cats);
+      } catch (error) {
+        logger.error('Error loading categories', error);
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+    loadCategories();
+  }, []);
+
+  // Load subcategories when category changes
+  useEffect(() => {
+    const loadSubcategories = async () => {
+      if (formData.categoryId) {
+        try {
+          setLoadingSubcategories(true);
+          const subs = await getSubcategoriesByCategoryId(formData.categoryId);
+          setSubcategories(subs);
+        } catch (error) {
+          logger.error('Error loading subcategories', error);
+        } finally {
+          setLoadingSubcategories(false);
+        }
+      } else {
+        setSubcategories([]);
+      }
+    };
+    loadSubcategories();
+  }, [formData.categoryId]);
+
   // Reset form data when modal opens or cause changes
   useEffect(() => {
     if (isOpen) {
@@ -68,12 +134,33 @@ export const CauseFormModal = ({
         description: cause?.description || '',
         icon: cause?.icon || '❤️',
         coverImage: cause?.coverImage || '',
-        category: cause?.category || 'general',
-        isActive: cause?.isActive ?? false, // Default to false for new causes
+        categoryId: cause?.categoryId || '',
+        subcategoryId: cause?.subcategoryId || '',
+        category: cause?.category, // Legacy field
+        isActive: cause?.isActive ?? false,
         sortOrder: cause?.sortOrder || 0,
-        status: cause?.status || 'pending', // Default to pending for new causes
+        status: cause?.status || 'pending',
         followers: cause?.followers || 0,
-        fundsRaised: cause?.fundsRaised || 0
+        fundsRaised: cause?.fundsRaised || 0,
+        targetAmount: cause?.targetAmount,
+        primaryCurrency: cause?.primaryCurrency || 'NGN',
+        exchangeRateToUSD: cause?.exchangeRateToUSD || 1650,
+        supportedWaqfTypes: cause?.supportedWaqfTypes || [WaqfType.PERMANENT],
+        investmentStrategy: cause?.investmentStrategy || {
+          assetAllocation: '60% Sukuk, 40% Equity',
+          expectedAnnualReturn: 7.0,
+          distributionFrequency: 'quarterly'
+        },
+        consumableOptions: cause?.consumableOptions || {
+          minDurationMonths: 6,
+          maxDurationMonths: 60,
+          defaultSpendingSchedule: 'phased'
+        },
+        revolvingOptions: cause?.revolvingOptions || {
+          minLockPeriodMonths: 12,
+          maxLockPeriodMonths: 120,
+          expectedReturnDuringPeriod: 35.0
+        }
       });
       setErrors({});
       setIsSubmitting(false);
@@ -81,25 +168,18 @@ export const CauseFormModal = ({
     }
   }, [isOpen, cause]);
 
-  const categories = [
-    'education', 'healthcare', 'economic relief & empowerment', 'mosques', 
-    'religious awareness', 'environment', 'community', 'general'
-  ];
-
-  const popularIcons = {
-    education: ['🎓', '📚', '✏️', '🎒', '👨‍🎓', '👩‍🏫', '🏫', '📝', '🧮', '🔬', '🎯', '💡'],
-    healthcare: ['🏥', '⚕️', '💊', '🩺', '🏩', '🚑', '💉', '🩹', '❤️‍🩹', '🧬', '🔬', '🏨'],
-    'economic relief & empowerment': ['💰', '🤲', '🏪', '💼', '📈', '🏭', '👔', '💳', '🏦', '📊', '💎', '🎯'],
-    mosques: ['🕌', '☪️', '📿', '🤲', '🕋', '🌙', '⭐', '📖', '🎯', '💚', '🌟', '✨'],
-    'religious awareness': ['📖', '☪️', '🤲', '📿', '🌙', '⭐', '💚', '🌟', '✨', '🎯', '📚', '💡'],
-    environment: ['🌱', '🌍', '🌳', '💧', '🌿', '♻️', '🌊', '🍃', '🌺', '🐝', '🦋', '🌈'],
-    community: ['🤝', '👥', '🏘️', '❤️', '🎪', '🎭', '🎨', '🏃‍♀️', '👶', '👵', '🤗', '💝'],
-    general: ['❤️', '🌟', '✨', '💝', '🎯', '🤗', '💡', '🌈', '🎪', '🎭', '🎨', '🏆']
-  };
-
-  // Get icons for current category, fallback to general if category not found
-  const getCurrentCategoryIcons = () => {
-    return popularIcons[formData.category as keyof typeof popularIcons] || popularIcons.general;
+  // Get common icons based on the current subcategory
+  const getIconSuggestions = () => {
+    // Common icons for all causes
+    const commonIcons = ['❤️', '🌟', '✨', '💝', '🎯', '🤗', '💡', '🌈', '🤲', '🏆'];
+    
+    // Find current subcategory to get its icon
+    const currentSubcategory = subcategories.find(sub => sub.id === formData.subcategoryId);
+    if (currentSubcategory) {
+      return [currentSubcategory.icon, ...commonIcons];
+    }
+    
+    return commonIcons;
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
@@ -117,7 +197,7 @@ export const CauseFormModal = ({
   const handleImageUpload = async (file: File) => {
     try {
       setIsUploading(true);
-      console.log('Starting image upload:', file.name, file.type, file.size);
+      logger.debug('Starting image upload', { fileName: file.name, fileType: file.type, fileSize: file.size });
       
       const result = await uploadFile({
         collection: 'cause_images',
@@ -125,13 +205,13 @@ export const CauseFormModal = ({
         filename: `cause_images/${uuidv4()}_${file.name}`
       } as const);
 
-      console.log('Upload result:', result);
+      logger.debug('Upload result', { data: result });
 
       if (!result?.downloadUrl) {
         throw new Error('Failed to get download URL');
       }
 
-      console.log('Image uploaded successfully:', result.downloadUrl);
+      logger.debug('Image uploaded successfully', { data: result.downloadUrl });
 
       // Insert markdown image syntax at cursor position
       const markdownImage = `![${file.name}](${result.downloadUrl})`;
@@ -142,7 +222,7 @@ export const CauseFormModal = ({
       
       alert('Image uploaded successfully!');
     } catch (error) {
-      console.error('Error uploading image:', error);
+      logger.error('Error uploading image', error instanceof Error ? error : { error });
       alert(`Failed to upload image: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
@@ -153,7 +233,7 @@ export const CauseFormModal = ({
   const checkCollection = async () => {
     try {
       setIsCheckingCollection(true);
-      console.log('Checking cause_images collection...');
+      logger.debug('Checking cause_images collection...');
       
       const assets = await listAssets({
         collection: 'cause_images',
@@ -164,10 +244,10 @@ export const CauseFormModal = ({
         }
       });
       
-      console.log('Collection check result:', assets);
+      logger.debug('Collection check result', { data: assets });
       return true;
     } catch (error) {
-      console.error('Collection check failed:', error);
+      logger.error('Collection check failed', error instanceof Error ? error : { error });
       return false;
     } finally {
       setIsCheckingCollection(false);
@@ -177,7 +257,7 @@ export const CauseFormModal = ({
   const handleCoverImageUpload = async (file: File) => {
     try {
       setIsUploading(true);
-      console.log('Starting cover image upload:', file.name, file.type, file.size);
+      logger.debug('Starting cover image upload', { fileName: file.name, fileType: file.type, fileSize: file.size });
       
       const result = await uploadFile({
         collection: 'cause_images',
@@ -185,13 +265,13 @@ export const CauseFormModal = ({
         filename: `cause_covers/${uuidv4()}_${file.name}`
       } as const);
 
-      console.log('Cover upload result:', result);
+      logger.debug('Cover upload result', { data: result });
 
       if (!result?.downloadUrl) {
         throw new Error('Failed to get download URL');
       }
 
-      console.log('Cover image uploaded successfully:', result.downloadUrl);
+      logger.debug('Cover image uploaded successfully', { data: result.downloadUrl });
 
       // Set cover image URL
       setFormData(prev => ({
@@ -201,7 +281,7 @@ export const CauseFormModal = ({
       
       alert('Cover image uploaded successfully!');
     } catch (error) {
-      console.error('Error uploading cover image:', error);
+      logger.error('Error uploading cover image', error instanceof Error ? error : { error });
       alert(`Failed to upload cover image: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setIsUploading(false);
@@ -216,6 +296,16 @@ export const CauseFormModal = ({
       newErrors.name = 'Cause name is required';
     } else if (formData.name.length < 3) {
       newErrors.name = 'Cause name must be at least 3 characters';
+    }
+
+    // Category validation
+    if (!formData.categoryId) {
+      newErrors.categoryId = 'Main category is required';
+    }
+
+    // Subcategory validation
+    if (!formData.subcategoryId) {
+      newErrors.subcategoryId = 'Subcategory is required';
     }
 
     // Description validation - check plain text length
@@ -333,10 +423,10 @@ export const CauseFormModal = ({
                       referrerPolicy="no-referrer"
                       loading="lazy"
                       onError={(e) => {
-                        console.error('Failed to load cover image:', formData.coverImage);
+                        logger.error('Failed to load cover image', { url: formData.coverImage });
                       }}
                       onLoad={() => {
-                        console.log('Cover image loaded successfully:', formData.coverImage);
+                        logger.debug('Cover image loaded successfully:', { data: formData.coverImage });
                       }}
                     />
                     <button
@@ -483,10 +573,10 @@ export const CauseFormModal = ({
                 </div>
                 <div>
                   <p className="text-xs font-medium text-gray-600 mb-2">
-                    🎯 Popular Icons for {formData.category.charAt(0).toUpperCase() + formData.category.slice(1)}:
+                    🎯 Suggested Icons:
                   </p>
                   <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                    {getCurrentCategoryIcons().map(icon => (
+                    {getIconSuggestions().map(icon => (
                       <button
                         key={icon}
                         type="button"
@@ -503,34 +593,139 @@ export const CauseFormModal = ({
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
-                    💡 Icons change based on selected category. You can also type any emoji manually above.
+                    💡 Icons adapt based on your selected subcategory. You can also type any emoji manually.
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* Category and Status */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Category */}
-              <div>
-                <label className="block text-sm font-semibold mb-2 text-gray-700">
-                  📋 Category
-                </label>
-                <select
-                  value={formData.category}
-                  onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white"
-                >
-                  {categories.map(cat => (
-                    <option key={cat} value={cat}>
-                      {cat.charAt(0).toUpperCase() + cat.slice(1)}
-                    </option>
-                  ))}
-                </select>
+            {/* Category and Subcategory */}
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Main Category */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">
+                    📋 Main Category *
+                  </label>
+                  {loadingCategories ? (
+                    <div className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl bg-gray-50 text-gray-500 flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                      <span>Loading categories...</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.categoryId}
+                      onChange={(e) => {
+                        setFormData(prev => ({ 
+                          ...prev, 
+                          categoryId: e.target.value,
+                          subcategoryId: '' // Reset subcategory when main category changes
+                        }));
+                      }}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white"
+                      required
+                    >
+                      <option value="">Select a category...</option>
+                      {categories.map(cat => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.icon} {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {formData.categoryId && categories.find(c => c.id === formData.categoryId) && (
+                    <p className="text-xs text-gray-600 mt-2 bg-blue-50 px-3 py-2 rounded-lg">
+                      {categories.find(c => c.id === formData.categoryId)?.description}
+                    </p>
+                  )}
+                  {errors.categoryId && (
+                    <p className="text-red-600 text-sm mt-2 flex items-center gap-1">
+                      <span>⚠️</span> {errors.categoryId}
+                    </p>
+                  )}
+                </div>
+
+                {/* Subcategory */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">
+                    🎯 Subcategory *
+                  </label>
+                  {!formData.categoryId ? (
+                    <div className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl bg-gray-50 text-gray-500">
+                      Select a main category first
+                    </div>
+                  ) : loadingSubcategories ? (
+                    <div className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl bg-gray-50 text-gray-500 flex items-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
+                      <span>Loading subcategories...</span>
+                    </div>
+                  ) : subcategories.length === 0 ? (
+                    <div className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl bg-yellow-50 text-yellow-700">
+                      No subcategories available
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.subcategoryId}
+                      onChange={(e) => setFormData(prev => ({ ...prev, subcategoryId: e.target.value }))}
+                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white"
+                      required
+                      disabled={!formData.categoryId}
+                    >
+                      <option value="">Select a subcategory...</option>
+                      {subcategories.map(sub => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.icon} {sub.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {formData.subcategoryId && subcategories.find(s => s.id === formData.subcategoryId) && (
+                    <div className="mt-2 space-y-2">
+                      <p className="text-xs text-gray-600 bg-blue-50 px-3 py-2 rounded-lg">
+                        {subcategories.find(s => s.id === formData.subcategoryId)?.description}
+                      </p>
+                      {subcategories.find(s => s.id === formData.subcategoryId)?.examples.length > 0 && (
+                        <div className="text-xs text-gray-600 bg-purple-50 px-3 py-2 rounded-lg">
+                          <p className="font-semibold mb-1">💡 Examples:</p>
+                          <ul className="list-disc list-inside space-y-0.5">
+                            {subcategories.find(s => s.id === formData.subcategoryId)?.examples.slice(0, 3).map((ex, idx) => (
+                              <li key={idx}>{ex}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {errors.subcategoryId && (
+                    <p className="text-red-600 text-sm mt-2 flex items-center gap-1">
+                      <span>⚠️</span> {errors.subcategoryId}
+                    </p>
+                  )}
+                </div>
               </div>
 
-              {/* Approval Status - Only for users with approval permission */}
-              {canApprove ? (
+              {/* Status Row */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Active Status */}
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">
+                    🔄 Active Status
+                  </label>
+                  <select
+                    value={formData.isActive ? 'active' : 'inactive'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isActive: e.target.value === 'active' }))}
+                    className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white"
+                  >
+                    <option value="active">✅ Active</option>
+                    <option value="inactive">⏸️ Inactive</option>
+                  </select>
+                  <p className="text-xs text-gray-500 mt-2">
+                    💡 Only active causes are visible to donors
+                  </p>
+                </div>
+
+                {/* Approval Status - Only for users with approval permission */}
+                {canApprove ? (
                 <div>
                   <label className="block text-sm font-semibold mb-2 text-gray-700">
                     ✅ Approval Status
@@ -558,6 +753,374 @@ export const CauseFormModal = ({
                   <p className="text-xs text-gray-500 mt-2">💡 Only authorized admins can change approval status</p>
                 </div>
               )}
+              </div>
+            </div>
+
+            {/* Waqf Type Configuration */}
+            <div className="bg-gradient-to-br from-green-50 to-blue-50 p-6 rounded-xl border-2 border-green-100 space-y-4">
+              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                🏛️ Supported Waqf Types
+              </h3>
+              <p className="text-sm text-gray-600">
+                Select which waqf models donors can use for this cause
+              </p>
+              
+              <div className="space-y-3">
+                {/* Permanent Waqf */}
+                <label className="flex items-start gap-3 p-3 bg-white rounded-lg border-2 border-gray-200 hover:border-green-300 cursor-pointer transition-all">
+                  <input
+                    type="checkbox"
+                    checked={formData.supportedWaqfTypes.includes(WaqfType.PERMANENT)}
+                    onChange={(e) => {
+                      const types = e.target.checked
+                        ? [...formData.supportedWaqfTypes, WaqfType.PERMANENT]
+                        : formData.supportedWaqfTypes.filter(t => t !== WaqfType.PERMANENT);
+                      setFormData(prev => ({ ...prev, supportedWaqfTypes: types }));
+                    }}
+                    className="mt-1 h-5 w-5 text-green-600 focus:ring-4 focus:ring-green-100 rounded"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-800">Permanent Waqf</div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      Principal preserved forever, only returns distributed
+                    </div>
+                  </div>
+                </label>
+                
+                {/* Consumable Waqf */}
+                <label className="flex items-start gap-3 p-3 bg-white rounded-lg border-2 border-gray-200 hover:border-blue-300 cursor-pointer transition-all">
+                  <input
+                    type="checkbox"
+                    checked={formData.supportedWaqfTypes.includes(WaqfType.TEMPORARY_CONSUMABLE)}
+                    onChange={(e) => {
+                      const types = e.target.checked
+                        ? [...formData.supportedWaqfTypes, WaqfType.TEMPORARY_CONSUMABLE]
+                        : formData.supportedWaqfTypes.filter(t => t !== WaqfType.TEMPORARY_CONSUMABLE);
+                      setFormData(prev => ({ ...prev, supportedWaqfTypes: types }));
+                    }}
+                    className="mt-1 h-5 w-5 text-blue-600 focus:ring-4 focus:ring-blue-100 rounded"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-800">Consumable Waqf</div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      Principal + returns spent over time period
+                    </div>
+                  </div>
+                </label>
+                
+                {/* Revolving Waqf */}
+                <label className="flex items-start gap-3 p-3 bg-white rounded-lg border-2 border-gray-200 hover:border-purple-300 cursor-pointer transition-all">
+                  <input
+                    type="checkbox"
+                    checked={formData.supportedWaqfTypes.includes(WaqfType.TEMPORARY_REVOLVING)}
+                    onChange={(e) => {
+                      const types = e.target.checked
+                        ? [...formData.supportedWaqfTypes, WaqfType.TEMPORARY_REVOLVING]
+                        : formData.supportedWaqfTypes.filter(t => t !== WaqfType.TEMPORARY_REVOLVING);
+                      setFormData(prev => ({ ...prev, supportedWaqfTypes: types }));
+                    }}
+                    className="mt-1 h-5 w-5 text-purple-600 focus:ring-4 focus:ring-purple-100 rounded"
+                  />
+                  <div className="flex-1">
+                    <div className="font-semibold text-gray-800">Revolving Waqf</div>
+                    <div className="text-xs text-gray-600 mt-1">
+                      Principal returned to donor, returns distributed during term
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Conditional Configuration Sections */}
+            {formData.supportedWaqfTypes.includes(WaqfType.PERMANENT) && (
+              <div className="bg-green-50 p-5 rounded-xl border-2 border-green-100 space-y-4">
+                <h3 className="text-base font-semibold text-gray-800">💎 Investment Strategy (Permanent)</h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Asset Allocation
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.investmentStrategy?.assetAllocation || ''}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        investmentStrategy: {
+                          ...prev.investmentStrategy!,
+                          assetAllocation: e.target.value
+                        }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      placeholder="e.g., 60% Sukuk, 40% Equity"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Expected Annual Return (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        value={formData.investmentStrategy?.expectedAnnualReturn || 0}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          investmentStrategy: {
+                            ...prev.investmentStrategy!,
+                            expectedAnnualReturn: parseFloat(e.target.value)
+                          }
+                        }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Distribution Frequency
+                      </label>
+                      <select
+                        value={formData.investmentStrategy?.distributionFrequency || 'quarterly'}
+                        onChange={(e) => setFormData(prev => ({
+                          ...prev,
+                          investmentStrategy: {
+                            ...prev.investmentStrategy!,
+                            distributionFrequency: e.target.value as 'monthly' | 'quarterly' | 'annually'
+                          }
+                        }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                      >
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="annually">Annually</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {formData.supportedWaqfTypes.includes(WaqfType.TEMPORARY_CONSUMABLE) && (
+              <div className="bg-blue-50 p-5 rounded-xl border-2 border-blue-100 space-y-4">
+                <h3 className="text-base font-semibold text-gray-800">⚡ Consumable Options</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Min Duration (months)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={formData.consumableOptions?.minDurationMonths || 6}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        consumableOptions: {
+                          ...prev.consumableOptions!,
+                          minDurationMonths: parseInt(e.target.value)
+                        }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Max Duration (months)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={formData.consumableOptions?.maxDurationMonths || 60}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        consumableOptions: {
+                          ...prev.consumableOptions!,
+                          maxDurationMonths: parseInt(e.target.value)
+                        }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Default Schedule
+                    </label>
+                    <select
+                      value={formData.consumableOptions?.defaultSpendingSchedule || 'phased'}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        consumableOptions: {
+                          ...prev.consumableOptions!,
+                          defaultSpendingSchedule: e.target.value as 'immediate' | 'phased' | 'milestone-based' | 'ongoing'
+                        }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="immediate">⚡ Immediate</option>
+                      <option value="phased">📅 Phased</option>
+                      <option value="milestone-based">🎯 Milestone-Based</option>
+                      <option value="ongoing">♾️ Ongoing</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="text-xs text-gray-600 space-y-1 bg-white/50 p-3 rounded-lg">
+                  <p><strong>⚡ Immediate:</strong> Full amount distributed once fundraising target is met</p>
+                  <p><strong>📅 Phased:</strong> Funds distributed in equal installments over the specified duration</p>
+                  <p><strong>🎯 Milestone-Based:</strong> Funds released when specific project milestones are achieved</p>
+                  <p><strong>♾️ Ongoing:</strong> Continuous monthly distributions for recurring support (e.g., orphan sponsorship, healthcare)</p>
+                </div>
+              </div>
+            )}
+
+            {formData.supportedWaqfTypes.includes(WaqfType.TEMPORARY_REVOLVING) && (
+              <div className="bg-purple-50 p-5 rounded-xl border-2 border-purple-100 space-y-4">
+                <h3 className="text-base font-semibold text-gray-800">🔄 Revolving Options</h3>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Min Lock Period (months)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={formData.revolvingOptions?.minLockPeriodMonths || 12}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        revolvingOptions: {
+                          ...prev.revolvingOptions!,
+                          minLockPeriodMonths: parseInt(e.target.value)
+                        }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Max Lock Period (months)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="240"
+                      value={formData.revolvingOptions?.maxLockPeriodMonths || 120}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        revolvingOptions: {
+                          ...prev.revolvingOptions!,
+                          maxLockPeriodMonths: parseInt(e.target.value)
+                        }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Expected Return (%)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={formData.revolvingOptions?.expectedReturnDuringPeriod || 35}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        revolvingOptions: {
+                          ...prev.revolvingOptions!,
+                          expectedReturnDuringPeriod: parseFloat(e.target.value)
+                        }
+                      }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Target Amount & Currency */}
+            <div className="bg-gradient-to-br from-yellow-50 to-orange-50 p-5 rounded-xl border-2 border-yellow-100 space-y-4">
+              <h3 className="text-base font-semibold text-gray-800">💰 Fundraising Configuration</h3>
+              
+              {/* Primary Currency */}
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  🌍 Primary Currency
+                </label>
+                <select
+                  value={formData.primaryCurrency}
+                  onChange={(e) => setFormData(prev => ({ ...prev, primaryCurrency: e.target.value }))}
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-yellow-100 focus:border-yellow-500 transition-all bg-white"
+                >
+                  <option value="NGN">🇳🇬 Nigerian Naira (NGN)</option>
+                  <option value="USD">🇺🇸 US Dollar (USD)</option>
+                  <option value="EUR">🇪🇺 Euro (EUR)</option>
+                  <option value="GBP">🇬🇧 British Pound (GBP)</option>
+                  <option value="SAR">🇸🇦 Saudi Riyal (SAR)</option>
+                  <option value="AED">🇦🇪 UAE Dirham (AED)</option>
+                </select>
+              </div>
+              
+              {/* Exchange Rate (if not USD) */}
+              {formData.primaryCurrency && formData.primaryCurrency !== 'USD' && (
+                <div>
+                  <label className="block text-sm font-semibold mb-2 text-gray-700">
+                    💱 Exchange Rate to USD
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-600">1 USD =</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={formData.exchangeRateToUSD || ''}
+                      onChange={(e) => setFormData(prev => ({ 
+                        ...prev, 
+                        exchangeRateToUSD: e.target.value ? parseFloat(e.target.value) : undefined 
+                      }))}
+                      className="flex-1 px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-yellow-100 focus:border-yellow-500 transition-all bg-white"
+                      placeholder="e.g., 1650"
+                    />
+                    <span className="text-sm font-semibold text-gray-700">{formData.primaryCurrency}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 Current rate: 1 USD ≈ {formData.exchangeRateToUSD || 0} {formData.primaryCurrency}
+                  </p>
+                </div>
+              )}
+              
+              {/* Target Amount */}
+              <div>
+                <label className="block text-sm font-semibold mb-2 text-gray-700">
+                  🎯 Target Amount (Optional)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-semibold">
+                    {formData.primaryCurrency === 'NGN' ? '₦' :
+                     formData.primaryCurrency === 'EUR' ? '€' :
+                     formData.primaryCurrency === 'GBP' ? '£' :
+                     formData.primaryCurrency === 'SAR' ? 'SR' :
+                     formData.primaryCurrency === 'AED' ? 'د.إ' : '$'}
+                  </span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={formData.targetAmount || ''}
+                    onChange={(e) => setFormData(prev => ({ 
+                      ...prev, 
+                      targetAmount: e.target.value ? parseFloat(e.target.value) : undefined 
+                    }))}
+                    className="w-full pl-12 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-yellow-100 focus:border-yellow-500 transition-all bg-white"
+                    placeholder={`e.g., ${formData.primaryCurrency === 'NGN' ? '50,000,000' : '50,000'}`}
+                  />
+                </div>
+                {formData.targetAmount && formData.primaryCurrency !== 'USD' && formData.exchangeRateToUSD && (
+                  <p className="text-xs text-gray-600 mt-2 bg-white px-3 py-2 rounded-lg border border-yellow-200">
+                    ≈ ${(formData.targetAmount / formData.exchangeRateToUSD).toLocaleString(undefined, {maximumFractionDigits: 2})} USD
+                  </p>
+                )}
+                <p className="text-xs text-gray-600 mt-2 bg-yellow-50 px-3 py-2 rounded-lg">
+                  💡 Set a fundraising goal for this cause. Leave empty if no specific target.
+                </p>
+              </div>
             </div>
 
             {/* Active Status and Sort Order */}

@@ -2,7 +2,9 @@
 import { setDoc, getDoc, listDocs, deleteDoc } from '@junobuild/core';
 import { logActivity } from './activity-utils';
 import { canApproveCauses, canManageCauses } from './admin-utils';
-import type { Cause, CauseDoc } from '@/types/waqfs';
+import type { Cause } from '@/types/waqfs';
+import { randomUUID } from './crypto-polyfill';
+import { logger } from './logger';
 
 // Collection Name
 export const CAUSES_COLLECTION = 'causes';
@@ -17,7 +19,7 @@ export const createCause = async (cause: Omit<Cause, 'id' | 'createdAt' | 'updat
       throw new Error('Permission denied: Only Waqf Managers can create causes');
     }
     
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const now = new Date().toISOString();
     
     await setDoc({
@@ -54,7 +56,7 @@ export const createCause = async (cause: Omit<Cause, 'id' | 'createdAt' | 'updat
     
     return id;
   } catch (error) {
-    console.error('Error creating cause:', error);
+    logger.error('Error creating cause', { error, causeName: cause.name });
     throw new Error('Failed to create cause');
   }
 };
@@ -70,7 +72,7 @@ export const getCause = async (id: string): Promise<Cause | undefined> => {
     });
     return doc?.data as Cause | undefined;
   } catch (error) {
-    console.error('Error fetching cause:', error);
+    logger.error('Error fetching cause', { error, id });
     throw new Error(`Failed to fetch cause ${id}`);
   }
 };
@@ -80,21 +82,7 @@ export const getCause = async (id: string): Promise<Cause | undefined> => {
  */
 export const updateCause = async (id: string, updates: Partial<Cause>, userId?: string, userName?: string) => {
   try {
-    // Check permissions based on what's being updated
-    if (userId) {
-      // If status is being changed, need approval permission
-      if (updates.status && !await canApproveCauses(userId)) {
-        throw new Error('Permission denied: Only Compliance Officers and Platform Admins can change cause status');
-      }
-      
-      // If other fields are being changed, need management permission
-      const hasNonStatusUpdates = Object.keys(updates).some(key => key !== 'status');
-      if (hasNonStatusUpdates && !await canManageCauses(userId)) {
-        throw new Error('Permission denied: Only Waqf Managers can edit cause details');
-      }
-    }
-    
-    // First get the full document to get the current version
+    // First get the full document to get the current version and check what's actually changing
     const docResult = await getDoc({
       collection: CAUSES_COLLECTION,
       key: id
@@ -106,16 +94,35 @@ export const updateCause = async (id: string, updates: Partial<Cause>, userId?: 
     
     const existing = docResult.data as Cause;
     
+    // Check permissions based on what's being updated
+    if (userId) {
+      // If status is being CHANGED (not just included), need approval permission
+      const isStatusChanging = updates.status && updates.status !== existing.status;
+      if (isStatusChanging && !await canApproveCauses(userId)) {
+        throw new Error('Permission denied: Only Compliance Officers and Platform Admins can change cause status');
+      }
+      
+      // If other fields are being changed, need management permission
+      const hasNonStatusUpdates = Object.keys(updates).some(key => key !== 'status');
+      if (hasNonStatusUpdates && !await canManageCauses(userId)) {
+        throw new Error('Permission denied: Only Waqf Managers can edit cause details');
+      }
+    }
+    
+    const updatedData = {
+      ...existing,
+      ...updates,
+      id, // Ensure id doesn't change
+      updatedAt: new Date().toISOString()
+    };
+    
+    logger.debug('Updating cause with data', { id, updatedData });
+    
     await setDoc({
       collection: CAUSES_COLLECTION,
       doc: {
         key: id,
-        data: {
-          ...existing,
-          ...updates,
-          id, // Ensure id doesn't change
-          updatedAt: new Date().toISOString()
-        },
+        data: updatedData,
         version: docResult.version // Include the version for optimistic locking
       }
     });
@@ -176,8 +183,8 @@ export const updateCause = async (id: string, updates: Partial<Cause>, userId?: 
       }
     }
   } catch (error) {
-    console.error('Error updating cause:', error);
-    throw new Error(`Failed to update cause ${id}`);
+    logger.error('Error updating cause', { error, id, errorMessage: error instanceof Error ? error.message : 'Unknown error' });
+    throw error instanceof Error ? error : new Error(`Failed to update cause ${id}`);
   }
 };
 
@@ -222,7 +229,7 @@ export const deleteCause = async (id: string, userId?: string, userName?: string
       );
     }
   } catch (error) {
-    console.error('Error deleting cause:', error);
+    logger.error('Error deleting cause', { error, id });
     throw new Error(`Failed to delete cause ${id}`);
   }
 };
@@ -237,7 +244,7 @@ export const listCauses = async (): Promise<Cause[]> => {
     });
     return items.map(item => item.data as Cause);
   } catch (error) {
-    console.error('Error listing causes:', error);
+    logger.error('Error listing causes', { error });
     throw new Error('Failed to list causes');
   }
 };
@@ -250,7 +257,7 @@ export const listActiveCauses = async (): Promise<Cause[]> => {
     const causes = await listCauses();
     return causes.filter(cause => cause.isActive && cause.status === 'approved');
   } catch (error) {
-    console.error('Error listing active causes:', error);
+    logger.error('Error listing active causes', { error });
     throw new Error('Failed to list active causes');
   }
 };
@@ -263,7 +270,7 @@ export const listCausesByCategory = async (category: string): Promise<Cause[]> =
     const causes = await listCauses();
     return causes.filter(cause => cause.category === category);
   } catch (error) {
-    console.error('Error listing causes by category:', error);
+    logger.error('Error listing causes by category', { error, category });
     throw new Error(`Failed to list causes for category ${category}`);
   }
 };
@@ -276,7 +283,7 @@ export const listCausesByStatus = async (status: 'pending' | 'approved' | 'rejec
     const causes = await listCauses();
     return causes.filter(cause => cause.status === status);
   } catch (error) {
-    console.error('Error listing causes by status:', error);
+    logger.error('Error listing causes by status', { error, status });
     throw new Error(`Failed to list causes with status ${status}`);
   }
 };
@@ -288,7 +295,7 @@ export const activateCause = async (id: string) => {
   try {
     await updateCause(id, { isActive: true });
   } catch (error) {
-    console.error('Error activating cause:', error);
+    logger.error('Error activating cause', { error, id });
     throw new Error(`Failed to activate cause ${id}`);
   }
 };
@@ -300,7 +307,7 @@ export const deactivateCause = async (id: string) => {
   try {
     await updateCause(id, { isActive: false });
   } catch (error) {
-    console.error('Error deactivating cause:', error);
+    logger.error('Error deactivating cause', { error, id });
     throw new Error(`Failed to deactivate cause ${id}`);
   }
 };
@@ -336,7 +343,7 @@ export const approveCause = async (id: string, userId?: string, userName?: strin
       );
     }
   } catch (error) {
-    console.error('Error approving cause:', error);
+    logger.error('Error approving cause', { error, id });
     throw new Error(`Failed to approve cause ${id}`);
   }
 };
@@ -372,7 +379,7 @@ export const rejectCause = async (id: string, userId?: string, userName?: string
       );
     }
   } catch (error) {
-    console.error('Error rejecting cause:', error);
+    logger.error('Error rejecting cause', { error, id });
     throw new Error(`Failed to reject cause ${id}`);
   }
 };
@@ -391,7 +398,7 @@ export const updateCauseFunds = async (id: string, amount: number) => {
       fundsRaised: (cause.fundsRaised || 0) + amount
     });
   } catch (error) {
-    console.error('Error updating cause funds:', error);
+    logger.error('Error updating cause funds', { error, id, amount });
     throw new Error(`Failed to update funds for cause ${id}`);
   }
 };
@@ -410,7 +417,7 @@ export const incrementCauseFollowers = async (id: string) => {
       followers: (cause.followers || 0) + 1
     });
   } catch (error) {
-    console.error('Error incrementing cause followers:', error);
+    logger.error('Error incrementing cause followers', { error, id });
     throw new Error(`Failed to increment followers for cause ${id}`);
   }
 };
@@ -430,7 +437,7 @@ export const decrementCauseFollowers = async (id: string) => {
       followers: newFollowers
     });
   } catch (error) {
-    console.error('Error decrementing cause followers:', error);
+    logger.error('Error decrementing cause followers', { error, id });
     throw new Error(`Failed to decrement followers for cause ${id}`);
   }
 };
@@ -445,7 +452,7 @@ export const getTopCausesByFunds = async (limit: number = 10): Promise<Cause[]> 
       .sort((a, b) => (b.fundsRaised || 0) - (a.fundsRaised || 0))
       .slice(0, limit);
   } catch (error) {
-    console.error('Error getting top causes by funds:', error);
+    logger.error('Error getting top causes by funds', { error, limit });
     throw new Error('Failed to get top causes');
   }
 };
@@ -461,7 +468,7 @@ export const getTopCausesByImpact = async (limit: number = 10): Promise<Cause[]>
       .sort((a, b) => (b.impactScore || 0) - (a.impactScore || 0))
       .slice(0, limit);
   } catch (error) {
-    console.error('Error getting top causes by impact:', error);
+    logger.error('Error getting top causes by impact', { error, limit });
     throw new Error('Failed to get top causes by impact');
   }
 };
@@ -474,7 +481,7 @@ export const listPendingCauses = async (): Promise<Cause[]> => {
     const causes = await listCauses();
     return causes.filter(cause => cause.status === 'pending');
   } catch (error) {
-    console.error('Error listing pending causes:', error);
+    logger.error('Error listing pending causes', { error });
     throw new Error('Failed to list pending causes');
   }
 };
@@ -486,7 +493,7 @@ export const listAllCausesForAdmin = async (): Promise<Cause[]> => {
   try {
     return await listCauses(); // All causes regardless of status
   } catch (error) {
-    console.error('Error listing all causes for admin:', error);
+    logger.error('Error listing all causes for admin', { error });
     throw new Error('Failed to list all causes for admin');
   }
 };
@@ -515,7 +522,7 @@ export const getCausesByStatus = async () => {
       }
     };
   } catch (error) {
-    console.error('Error getting causes by status:', error);
+    logger.error('Error getting causes by status', { error });
     throw new Error('Failed to get causes by status');
   }
 };
@@ -542,7 +549,7 @@ export const getCausesStatistics = async () => {
       averageFollowersPerCause: causes.length > 0 ? totalFollowers / causes.length : 0
     };
   } catch (error) {
-    console.error('Error getting causes statistics:', error);
+    logger.error('Error getting causes statistics', { error });
     throw new Error('Failed to get causes statistics');
   }
 };

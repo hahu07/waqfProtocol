@@ -88,8 +88,8 @@ fn validate_admin_request_data(request: &AdminRequest) -> std::result::Result<()
         return Err("Justification is required".into());
     }
     
-    if request.justification.len() < 10 {
-        return Err("Justification must be at least 10 characters".into());
+    if request.justification.len() < 2 {
+        return Err("Justification must be at least 2 characters".into());
     }
     
     if request.justification.len() > 2000 {
@@ -160,23 +160,32 @@ fn validate_request_role_rules(request: &AdminRequest) -> std::result::Result<()
         AdminRequestType::Add => {
             // Adding Platform Admin requires stricter justification
             if request.target_role == AdminRole::PlatformAdmin {
-                if request.justification.len() < 50 {
-                    return Err("Platform Admin additions require detailed justification (minimum 50 characters)".into());
+                if request.justification.len() < 15 {
+                    return Err("Platform Admin additions require detailed justification (minimum 15 characters)".into());
+                }
+                if request.justification.len() > 100 {
+                    return Err("Platform Admin additions justification must be 100 characters or less".into());
                 }
             }
         },
         AdminRequestType::Remove => {
             // Removing admins requires careful consideration
             if request.target_role == AdminRole::PlatformAdmin {
-                if request.justification.len() < 100 {
-                    return Err("Platform Admin removals require extensive justification (minimum 100 characters)".into());
+                if request.justification.len() < 15 {
+                    return Err("Platform Admin removals require extensive justification (minimum 15 characters)".into());
+                }
+                if request.justification.len() > 100 {
+                    return Err("Platform Admin removals justification must be 100 characters or less".into());
                 }
             }
         },
         AdminRequestType::Update => {
             // Role updates need proper justification
-            if request.justification.len() < 20 {
-                return Err("Role updates require adequate justification (minimum 20 characters)".into());
+            if request.justification.len() < 15 {
+                return Err("Role updates require adequate justification (minimum 15 characters)".into());
+            }
+            if request.justification.len() > 100 {
+                return Err("Role updates justification must be 100 characters or less".into());
             }
         },
     }

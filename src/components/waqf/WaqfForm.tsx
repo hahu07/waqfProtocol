@@ -1,48 +1,72 @@
 'use client';
 
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import { useRouter } from 'next/navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CausesModal } from './causesModal';
+import { WaqfDeedModal } from './WaqfDeedModal';
 import type { WaqfProfile, Cause } from '@/types/waqfs';
+import { WaqfType } from '@/types/waqfs';
+import { logger } from '@/lib/logger';
+import { calculateMaturityDate } from '@/lib/maturity-tracker';
 
-interface BasicCause {
-  id: string;
-  name: string;
-}
-
-const convertBasicCauseToCause = (basicCause: BasicCause): Cause => ({
-  id: basicCause.id,
-  name: basicCause.name,
-  description: '',
-  icon: '❤️',
-  category: 'general',
-  isActive: true,
-  sortOrder: 0,
-  status: 'approved',
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  followers: 0,
-  fundsRaised: 0
-});
 
 interface WaqfFormData {
   name: string;
   donorName: string;
   donorEmail: string;
+  donorPhone: string;
+  donorAddress: string;
   description: string;
   waqfAsset: number;
   selectedCauseIds: string[];
+  waqfType: 'permanent' | 'temporary_consumable' | 'temporary_revolving' | 'hybrid';
+  isHybrid: boolean;
+  
+  // Hybrid allocations
+  hybridAllocations: {
+    [causeId: string]: {
+      permanent: number;
+      temporary_consumable: number;
+      temporary_revolving: number;
+    }
+  };
+  
+  // Consumable waqf details
+  consumableDetails?: {
+    spendingSchedule: 'immediate' | 'phased' | 'milestone-based' | 'ongoing';
+    startDate?: string;
+    endDate?: string;
+    targetAmount?: number;
+    targetBeneficiaries?: number;
+    minimumMonthlyDistribution?: number;
+  };
+  
+  // Revolving waqf details
+  revolvingDetails?: {
+    lockPeriodMonths: number;
+    maturityDate: string;
+    principalReturnMethod: 'lump_sum' | 'installments';
+    earlyWithdrawalAllowed: boolean;
+  };
+  
+  // Investment strategy
+  investmentStrategy?: {
+    assetAllocation: string;
+    expectedAnnualReturn: number;
+    distributionFrequency: 'monthly' | 'quarterly' | 'annually';
+  };
 }
 
 interface WaqfFormProps {
   initialData?: WaqfProfile;
-  availableCauses: BasicCause[];
+  availableCauses: Cause[];
   isLoadingCauses?: boolean;
   causesError: Error | null;
+  userId: string;
   onSubmit: (data: Omit<WaqfProfile, 'id'>) => void;
 }
 
@@ -51,22 +75,61 @@ export function WaqfForm({
   availableCauses,
   isLoadingCauses = false,
   causesError,
+  userId,
   onSubmit 
 }: WaqfFormProps) {
+  const router = useRouter();
   const [formData, setFormData] = useState<WaqfFormData>({
     name: initialData?.name || '',
     donorName: initialData?.donor.name || '',
     donorEmail: initialData?.donor.email || '',
+    donorPhone: initialData?.donor.phone || '',
+    donorAddress: initialData?.donor.address || '',
     description: initialData?.description || '',
     waqfAsset: initialData?.waqfAsset || 0,
-    selectedCauseIds: initialData?.selectedCauses || []
+    selectedCauseIds: initialData?.selectedCauses || [],
+    
+    // Waqf type
+    waqfType: initialData?.isHybrid ? 'hybrid' : (initialData?.waqfType || 'permanent') as 'permanent' | 'temporary_consumable' | 'temporary_revolving' | 'hybrid',
+    isHybrid: initialData?.isHybrid || false,
+    
+    // Hybrid allocations
+    hybridAllocations: initialData?.hybridAllocations?.reduce((acc, alloc) => ({
+      ...acc,
+      [alloc.causeId]: alloc.allocations
+    }), {}) || {},
+    
+    // Consumable details
+    consumableDetails: initialData?.consumableDetails || {
+      spendingSchedule: 'phased',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    },
+    
+    // Revolving details
+    revolvingDetails: initialData?.revolvingDetails || {
+      lockPeriodMonths: 12,
+      maturityDate: calculateMaturityDate(12),
+      principalReturnMethod: 'lump_sum',
+      earlyWithdrawalAllowed: false
+    },
+    
+    // Investment strategy
+    investmentStrategy: initialData?.investmentStrategy || {
+      assetAllocation: '60% Sukuk, 40% Equity',
+      expectedAnnualReturn: 7.0,
+      distributionFrequency: 'quarterly'
+    }
   });
   
   const [showCausesModal, setShowCausesModal] = useState(false);
+  const [showWaqfDeed, setShowWaqfDeed] = useState(false);
   const [formErrors, setFormErrors] = useState<{
     name?: string;
     donorName?: string;
     donorEmail?: string;
+    donorPhone?: string;
+    donorAddress?: string;
     description?: string;
     waqfAsset?: string;
   }>({});
@@ -74,72 +137,288 @@ export function WaqfForm({
 
   const validateForm = (): boolean => {
     const errors: typeof formErrors = {};
-    if (!formData.name.trim()) errors.name = 'Waqf name is required';
-    if (!formData.donorName.trim()) errors.donorName = 'Donor name is required';
+    
+    // Validate waqf name
+    if (!formData.name.trim()) {
+      errors.name = 'Waqf name is required';
+    } else if (formData.name.length < 3) {
+      errors.name = 'Waqf name must be at least 3 characters';
+    } else if (formData.name.length > 100) {
+      errors.name = 'Waqf name must be less than 100 characters';
+    }
+    
+    // Validate donor name
+    if (!formData.donorName.trim()) {
+      errors.donorName = 'Donor name is required';
+    } else if (formData.donorName.length < 2) {
+      errors.donorName = 'Donor name must be at least 2 characters';
+    }
+    
+    // Validate email
     if (!formData.donorEmail.trim()) {
       errors.donorEmail = 'Email is required';
     } else if (!/^\S+@\S+\.\S+$/.test(formData.donorEmail)) {
-      errors.donorEmail = 'Please enter a valid email';
+      errors.donorEmail = 'Please enter a valid email address';
     }
+    
+    // Validate phone (optional but must be valid if provided)
+    if (formData.donorPhone.trim() && !/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/.test(formData.donorPhone)) {
+      errors.donorPhone = 'Please enter a valid phone number';
+    }
+    
+    // Validate description
     if (!formData.description.trim()) {
       errors.description = 'Description is required';
     } else if (formData.description.length < 20) {
       errors.description = 'Description must be at least 20 characters';
+    } else if (formData.description.length > 1000) {
+      errors.description = 'Description must be less than 1000 characters';
     }
+    
+    // Validate waqf asset
     if (formData.waqfAsset <= 0) {
       errors.waqfAsset = 'Waqf asset must be greater than 0';
+    } else if (formData.waqfAsset < 100) {
+      errors.waqfAsset = 'Waqf asset must be at least $100';
+    } else if (formData.waqfAsset > 1000000000) {
+      errors.waqfAsset = 'Waqf asset amount is too large';
     }
+    
+    // Validate causes selection
+    if (formData.selectedCauseIds.length === 0) {
+      alert('⚠️ Please select at least one charitable cause for your Waqf.');
+      return false;
+    }
+    
+    // Validate consumable waqf
+    if (formData.waqfType === 'temporary_consumable' || formData.isHybrid) {
+      if (formData.consumableDetails) {
+        const details = formData.consumableDetails;
+        
+        // Validate dates if both are provided
+        if (details.startDate && details.endDate) {
+          const startDate = new Date(details.startDate);
+          const endDate = new Date(details.endDate);
+          
+          if (endDate <= startDate) {
+            alert('⚠️ End date must be after start date for consumable waqf.');
+            return false;
+          }
+        }
+        
+        // Validate schedule-specific requirements
+        if (details.spendingSchedule === 'phased' && 
+            !details.startDate && !details.endDate && !details.minimumMonthlyDistribution) {
+          alert('⚠️ Phased spending requires either time boundaries or minimum monthly distribution.');
+          return false;
+        }
+        
+        if (details.spendingSchedule === 'ongoing' && 
+            !details.minimumMonthlyDistribution && !details.targetAmount && !details.targetBeneficiaries) {
+          alert('⚠️ Ongoing spending requires minimum distribution or target criteria.');
+          return false;
+        }
+      }
+    }
+
+    // Validate revolving waqf
+    if (formData.waqfType === 'temporary_revolving' || formData.isHybrid) {
+      if (formData.revolvingDetails) {
+        if (formData.revolvingDetails.lockPeriodMonths < 1) {
+          alert('⚠️ Lock period must be at least 1 month.');
+          return false;
+        }
+        if (formData.revolvingDetails.lockPeriodMonths > 240) {
+          alert('⚠️ Lock period cannot exceed 240 months (20 years).');
+          return false;
+        }
+      }
+    }
+
+    // Validate hybrid allocations
+    if (formData.isHybrid) {
+      for (const causeId of formData.selectedCauseIds) {
+        const allocation = formData.hybridAllocations[causeId];
+        if (!allocation) {
+          alert(`⚠️ Please set allocation percentages for all selected causes.`);
+          return false;
+        }
+        
+        const total = (allocation.permanent || 0) +
+                      (allocation.temporary_consumable || 0) +
+                      (allocation.temporary_revolving || 0);
+        
+        if (Math.abs(total - 100) > 0.01) {
+          const cause = availableCauses.find(c => c.id === causeId);
+          alert(`⚠️ Allocations for "${cause?.name}" must sum to 100% (currently ${total.toFixed(1)}%)`);
+          return false;
+        }
+      }
+    }
+    
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleReviewAndSign = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validateForm()) return;
     
+    // Check if user is authenticated
+    if (!userId || userId.trim() === '') {
+      alert('❌ You must be logged in to create a Waqf. Please log in and try again.');
+      return;
+    }
+    
+    // Validate form
+    if (!validateForm()) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    
+    // Show Waqf Deed modal
+    setShowWaqfDeed(true);
+  };
+
+  // Map frontend waqfType to Rust enum format
+  const mapWaqfTypeToRust = (type: string): string => {
+    switch(type) {
+      case 'permanent': return 'Permanent';
+      case 'temporary_consumable': return 'TemporaryConsumable';
+      case 'temporary_revolving': return 'TemporaryRevolving';
+      case 'hybrid': return 'Hybrid';
+      default: return type;
+    }
+  };
+
+  const handleSubmit = async () => {
     setIsSubmitting(true);
-    const waqfProfile: Omit<WaqfProfile, 'id'> = {
-      name: formData.name,
-      description: formData.description,
-      waqfAsset: formData.waqfAsset,
-      donor: {
-        name: formData.donorName,
-        email: formData.donorEmail,
-        phone: '',
-        address: ''
-      },
-      selectedCauses: formData.selectedCauseIds,
-      causeAllocation: {},
-      waqfAssets: [],
-      supportedCauses: availableCauses
-      .filter(c => formData.selectedCauseIds.includes(c.id))
-      .map(convertBasicCauseToCause),
-      financial: {
-        totalDonations: 0,
-        totalDistributed: 0,
-        currentBalance: 0,
-        investmentReturns: [],
-        totalInvestmentReturn: 0,
-        growthRate: 0,
-        causeAllocations: {}
-      },
-      reportingPreferences: {
-        frequency: 'yearly',
-        reportTypes: ['financial'],
-        deliveryMethod: 'email'
-      },
-      status: 'active',
-      notifications: {
-        contributionReminders: true,
-        impactReports: true,
-        financialUpdates: true
-      },
-      createdBy: '',
-      createdAt: new Date().toISOString()
-    };
     
-    onSubmit(waqfProfile);
-    setIsSubmitting(false);
+    try {
+      // Generate deed document data
+      const deedDocument = {
+        signedAt: new Date().toISOString(),
+        donorSignature: formData.donorName,
+        documentVersion: '1.0'
+      };
+      
+      // If this is an edit (initialData exists), call onSubmit directly without payment
+      if (initialData && initialData.id) {
+        const waqfProfile: Omit<WaqfProfile, 'id'> = {
+          name: formData.name,
+          description: formData.description,
+          waqfAsset: formData.waqfAsset,
+          waqfType: mapWaqfTypeToRust(formData.waqfType) as WaqfProfile['waqfType'],
+          isHybrid: formData.isHybrid,
+          hybridAllocations: formData.isHybrid ? Object.entries(formData.hybridAllocations).map(([causeId, allocation]) => ({
+            causeId,
+            allocations: {
+              permanent: allocation.permanent,
+              temporary_consumable: allocation.temporary_consumable,
+              temporary_revolving: allocation.temporary_revolving
+            }
+          })) : undefined,
+          consumableDetails: (formData.waqfType === 'temporary_consumable' || formData.isHybrid) ? formData.consumableDetails : undefined,
+          revolvingDetails: (formData.waqfType === 'temporary_revolving' || formData.isHybrid) ? formData.revolvingDetails : undefined,
+          investmentStrategy: formData.waqfType === 'permanent' ? formData.investmentStrategy : undefined,
+          donor: {
+            name: formData.donorName,
+            email: formData.donorEmail,
+            phone: formData.donorPhone,
+            address: formData.donorAddress
+          },
+          selectedCauses: formData.selectedCauseIds,
+          causeAllocation: {},
+          waqfAssets: [],
+          supportedCauses: availableCauses
+            .filter(c => formData.selectedCauseIds.includes(c.id)),
+          financial: initialData.financial || {
+            totalDonations: 0,
+            totalDistributed: 0,
+            currentBalance: 0,
+            investmentReturns: [],
+            totalInvestmentReturn: 0,
+            growthRate: 0,
+            causeAllocations: {}
+          },
+          reportingPreferences: {
+            frequency: 'yearly',
+            reportTypes: ['financial'],
+            deliveryMethod: 'email'
+          },
+          status: 'active',
+          notifications: {
+            contributionReminders: true,
+            impactReports: true,
+            financialUpdates: true
+          },
+          deedDocument: initialData.deedDocument || deedDocument,
+          createdBy: userId || 'anonymous',
+          createdAt: initialData.createdAt || new Date().toISOString()
+        };
+        
+        await onSubmit(waqfProfile);
+      } else {
+        // For new waqf creation, submit directly with deed document
+        const waqfProfile: Omit<WaqfProfile, 'id'> = {
+          name: formData.name,
+          description: formData.description,
+          waqfAsset: formData.waqfAsset,
+          waqfType: mapWaqfTypeToRust(formData.waqfType) as WaqfProfile['waqfType'],
+          isHybrid: formData.isHybrid,
+          hybridAllocations: formData.isHybrid ? Object.entries(formData.hybridAllocations).map(([causeId, allocation]) => ({
+            causeId,
+            allocations: {
+              permanent: allocation.permanent,
+              temporary_consumable: allocation.temporary_consumable,
+              temporary_revolving: allocation.temporary_revolving
+            }
+          })) : undefined,
+          consumableDetails: (formData.waqfType === 'temporary_consumable' || formData.isHybrid) ? formData.consumableDetails : undefined,
+          revolvingDetails: (formData.waqfType === 'temporary_revolving' || formData.isHybrid) ? formData.revolvingDetails : undefined,
+          investmentStrategy: formData.waqfType === 'permanent' ? formData.investmentStrategy : undefined,
+          donor: {
+            name: formData.donorName,
+            email: formData.donorEmail,
+            phone: formData.donorPhone,
+            address: formData.donorAddress
+          },
+          selectedCauses: formData.selectedCauseIds,
+          causeAllocation: {},
+          waqfAssets: [],
+          supportedCauses: availableCauses
+            .filter(c => formData.selectedCauseIds.includes(c.id)),
+          financial: {
+            totalDonations: formData.waqfAsset,
+            totalDistributed: 0,
+            currentBalance: formData.waqfAsset,
+            investmentReturns: [],
+            totalInvestmentReturn: 0,
+            growthRate: 0,
+            causeAllocations: {}
+          },
+          reportingPreferences: {
+            frequency: 'yearly',
+            reportTypes: ['financial'],
+            deliveryMethod: 'email'
+          },
+          status: 'active',
+          notifications: {
+            contributionReminders: true,
+            impactReports: true,
+            financialUpdates: true
+          },
+          deedDocument,
+          createdBy: userId || 'anonymous',
+          createdAt: new Date().toISOString()
+        };
+        
+        await onSubmit(waqfProfile);
+      }
+    } catch (error) {
+      logger.error('Form submission error', error instanceof Error ? error : { error });
+      alert(`❌ Failed to submit waqf: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -346,15 +625,542 @@ export function WaqfForm({
         </div>
       </div>
 
+      {/* Waqf Type Selection */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Label className="text-lg font-semibold text-gray-900 dark:text-white">Waqf Type</Label>
+        </div>
+        
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          Choose how your contribution will be managed
+        </p>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Permanent Waqf Card */}
+          <div 
+            className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+              formData.waqfType === 'permanent' 
+                ? 'border-green-500 bg-green-50 dark:bg-green-900/20' 
+                : 'border-gray-300 hover:border-green-300'
+            }`}
+            onClick={() => setFormData({...formData, waqfType: 'permanent', isHybrid: false})}
+          >
+            <h4 className="font-bold text-lg mb-2">🏛️ Permanent Waqf</h4>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Principal preserved forever. Only investment returns distributed to causes.
+            </p>
+            <div className="mt-3 text-xs text-green-600 dark:text-green-400 font-medium">
+              ✓ Lasting legacy · ✓ Continuous impact · ✓ Perpetual rewards
+            </div>
+          </div>
+          
+          {/* Consumable Waqf Card */}
+          <div 
+            className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+              formData.waqfType === 'temporary_consumable' 
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' 
+                : 'border-gray-300 hover:border-blue-300'
+            }`}
+            onClick={() => setFormData({...formData, waqfType: 'temporary_consumable', isHybrid: false})}
+          >
+            <h4 className="font-bold text-lg mb-2">⚡ Consumable Waqf</h4>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Principal + returns spent over time. Direct and immediate impact.
+            </p>
+            <div className="mt-3 text-xs text-blue-600 dark:text-blue-400 font-medium">
+              ✓ Fast impact · ✓ Complete spending · ✓ Time-bound
+            </div>
+          </div>
+          
+          {/* Revolving Waqf Card */}
+          <div 
+            className={`border-2 rounded-lg p-4 cursor-pointer transition-all ${
+              formData.waqfType === 'temporary_revolving' 
+                ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20' 
+                : 'border-gray-300 hover:border-purple-300'
+            }`}
+            onClick={() => setFormData({...formData, waqfType: 'temporary_revolving', isHybrid: false})}
+          >
+            <h4 className="font-bold text-lg mb-2">🔄 Revolving Waqf</h4>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Principal returned after term. Returns distributed to causes during lock period.
+            </p>
+            <div className="mt-3 text-xs text-purple-600 dark:text-purple-400 font-medium">
+              ✓ Capital preserved · ✓ Term rewards · ✓ Principal returned
+            </div>
+          </div>
+        </div>
+        
+        {/* Hybrid Option Toggle */}
+        <div className="mt-4 p-4 border-2 border-dashed border-gray-300 rounded-lg">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={formData.isHybrid}
+              onChange={(e) => setFormData({
+                ...formData, 
+                isHybrid: e.target.checked,
+                waqfType: e.target.checked ? 'hybrid' : 'permanent'
+              })}
+              className="w-5 h-5"
+            />
+            <div>
+              <span className="font-semibold">Enable Hybrid Allocation</span>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Split your contribution across multiple waqf types for each cause
+              </p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      {/* Consumable Waqf Configuration */}
+      {(formData.waqfType === 'temporary_consumable' || formData.isHybrid) && (
+        <div className="space-y-4 p-6 bg-green-50 dark:bg-green-900/20 rounded-lg">
+          <h3 className="text-lg font-semibold text-green-900 dark:text-green-100">
+            Consumable Waqf Configuration
+          </h3>
+          
+          <div>
+            <Label htmlFor="spendingSchedule">Spending Schedule</Label>
+            <select
+              id="spendingSchedule"
+              value={formData.consumableDetails?.spendingSchedule || 'phased'}
+              onChange={(e) => setFormData({
+                ...formData,
+                consumableDetails: {
+                  ...formData.consumableDetails!,
+                  spendingSchedule: e.target.value as 'immediate' | 'phased' | 'milestone-based' | 'ongoing'
+                }
+              })}
+              className="w-full px-4 py-2 border rounded-md"
+            >
+              <option value="immediate">Immediate - Spend as soon as possible</option>
+              <option value="phased">Phased - Gradual spending over time</option>
+              <option value="milestone-based">Milestone-Based - Spend upon milestones</option>
+              <option value="ongoing">Ongoing - Continuous distribution (no end date)</option>
+            </select>
+          </div>
+          
+          {/* Time boundaries (optional for ongoing) */}
+          {formData.consumableDetails?.spendingSchedule !== 'ongoing' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="startDate">Start Date</Label>
+                <Input
+                  type="date"
+                  id="startDate"
+                  value={formData.consumableDetails?.startDate || ''}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    consumableDetails: {
+                      ...formData.consumableDetails!,
+                      startDate: e.target.value || undefined
+                    }
+                  })}
+                />
+              </div>
+              
+              <div>
+                <Label htmlFor="endDate">End Date</Label>
+                <Input
+                  type="date"
+                  id="endDate"
+                  value={formData.consumableDetails?.endDate || ''}
+                  onChange={(e) => setFormData({
+                    ...formData,
+                    consumableDetails: {
+                      ...formData.consumableDetails!,
+                      endDate: e.target.value || undefined
+                    }
+                  })}
+                />
+              </div>
+            </div>
+          )}
+          
+          {/* Target-based completion (optional) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="targetAmount">Target Amount (Optional)</Label>
+              <Input
+                type="number"
+                id="targetAmount"
+                min="0"
+                step="100"
+                placeholder="e.g., 50000"
+                value={formData.consumableDetails?.targetAmount || ''}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  consumableDetails: {
+                    ...formData.consumableDetails!,
+                    targetAmount: e.target.value ? parseFloat(e.target.value) : undefined
+                  }
+                })}
+              />
+              <p className="text-xs text-gray-500 mt-1">Complete when this amount is distributed</p>
+            </div>
+            
+            <div>
+              <Label htmlFor="targetBeneficiaries">Target Beneficiaries (Optional)</Label>
+              <Input
+                type="number"
+                id="targetBeneficiaries"
+                min="1"
+                placeholder="e.g., 1000"
+                value={formData.consumableDetails?.targetBeneficiaries || ''}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  consumableDetails: {
+                    ...formData.consumableDetails!,
+                    targetBeneficiaries: e.target.value ? parseInt(e.target.value) : undefined
+                  }
+                })}
+              />
+              <p className="text-xs text-gray-500 mt-1">Complete when this many people helped</p>
+            </div>
+          </div>
+          
+          {/* Minimum monthly distribution */}
+          {(formData.consumableDetails?.spendingSchedule === 'ongoing' || 
+            formData.consumableDetails?.spendingSchedule === 'phased') && (
+            <div>
+              <Label htmlFor="minimumMonthlyDistribution">
+                Minimum Monthly Distribution {formData.consumableDetails?.spendingSchedule === 'ongoing' ? '' : '(Optional)'}
+              </Label>
+              <Input
+                type="number"
+                id="minimumMonthlyDistribution"
+                min="1"
+                step="10"
+                placeholder="e.g., 500"
+                value={formData.consumableDetails?.minimumMonthlyDistribution || ''}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  consumableDetails: {
+                    ...formData.consumableDetails!,
+                    minimumMonthlyDistribution: e.target.value ? parseFloat(e.target.value) : undefined
+                  }
+                })}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Minimum amount to distribute each month
+              </p>
+            </div>
+          )}
+          
+          {/* Schedule explanation with practical examples */}
+          <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-gray-800 dark:to-gray-700 rounded-lg border-2 border-blue-200 dark:border-gray-600">
+            {formData.consumableDetails?.spendingSchedule === 'immediate' && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-2xl">⚡</span>
+                  <div>
+                    <h4 className="font-bold text-gray-900 dark:text-white mb-1">Immediate Distribution</h4>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                      Funds distributed as quickly as possible to address urgent needs. Best for emergency relief and time-sensitive situations.
+                    </p>
+                    <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-blue-100 dark:border-gray-600">
+                      <p className="text-xs font-semibold text-blue-900 dark:text-blue-300 mb-1">💡 Example Use Cases:</p>
+                      <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1 ml-4">
+                        <li>• <strong>Emergency Relief:</strong> $50,000 for Gaza humanitarian crisis (3 months)</li>
+                        <li>• <strong>Disaster Response:</strong> $30,000 for earthquake victims (immediate)</li>
+                        <li>• <strong>Medical Emergency:</strong> $10,000 for urgent surgeries (1 month)</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {formData.consumableDetails?.spendingSchedule === 'phased' && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-2xl">📅</span>
+                  <div>
+                    <h4 className="font-bold text-gray-900 dark:text-white mb-1">Phased Distribution</h4>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                      Funds distributed gradually over time at a steady monthly rate. Ideal for ongoing programs with predictable needs. Accepts additional contributions and automatically extends the timeline.
+                    </p>
+                    <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-blue-100 dark:border-gray-600">
+                      <p className="text-xs font-semibold text-blue-900 dark:text-blue-300 mb-1">💡 Example Use Cases:</p>
+                      <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1 ml-4">
+                        <li>• <strong>Orphan Support:</strong> $24,000 over 24 months = $1,000/month for ongoing care</li>
+                        <li>• <strong>Food Program:</strong> $60,000 over 12 months = $5,000/month for meal distribution</li>
+                        <li>• <strong>Teacher Salaries:</strong> $36,000 over 36 months = $1,000/month for educator support</li>
+                      </ul>
+                      <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">
+                        ✨ Can accept more donations anytime - timeline extends proportionally!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {formData.consumableDetails?.spendingSchedule === 'milestone-based' && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-2xl">🎯</span>
+                  <div>
+                    <h4 className="font-bold text-gray-900 dark:text-white mb-1">Milestone-Based Distribution</h4>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                      Funds released when specific achievements are completed. Perfect for project-based work where progress can be verified before releasing funds.
+                    </p>
+                    <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-blue-100 dark:border-gray-600">
+                      <p className="text-xs font-semibold text-blue-900 dark:text-blue-300 mb-1">💡 Example Use Cases:</p>
+                      <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1 ml-4">
+                        <li>• <strong>Water Well Project:</strong> $50,000 split across milestones:
+                          <ul className="ml-3 mt-1 space-y-0.5">
+                            <li>  - Foundation complete: $10,000</li>
+                            <li>  - Well drilled: $20,000</li>
+                            <li>  - System installed: $15,000</li>
+                            <li>  - Testing done: $5,000</li>
+                          </ul>
+                        </li>
+                        <li>• <strong>School Building:</strong> Funds released at construction phases (design, foundation, walls, roof)</li>
+                        <li>• <strong>Medical Camp:</strong> Payment per milestone (setup, 100 patients, 500 patients, cleanup)</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {formData.consumableDetails?.spendingSchedule === 'ongoing' && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <span className="text-2xl">♾️</span>
+                  <div>
+                    <h4 className="font-bold text-gray-900 dark:text-white mb-1">Ongoing Distribution</h4>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
+                      Continuous distribution with no fixed end date. Distributes monthly until target is reached or funds are depleted. Perfect for long-term community programs that accept ongoing contributions.
+                    </p>
+                    <div className="bg-white dark:bg-gray-900 rounded-md p-3 border border-blue-100 dark:border-gray-600">
+                      <p className="text-xs font-semibold text-blue-900 dark:text-blue-300 mb-1">💡 Example Use Cases:</p>
+                      <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1 ml-4">
+                        <li>• <strong>Scholarship Fund:</strong> $100,000 at $2,000/month until 1,000 students helped</li>
+                        <li>• <strong>Community Kitchen:</strong> $50,000 at $1,000/month feeding families indefinitely</li>
+                        <li>• <strong>Healthcare Clinic:</strong> $200,000 at $5,000/month for ongoing medical services</li>
+                      </ul>
+                      <p className="text-xs text-green-700 dark:text-green-400 mt-2 font-medium">
+                        ✨ Always accepts donations - no end date! Continues until target met or manually stopped.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Revolving Waqf Configuration */}
+      {(formData.waqfType === 'temporary_revolving' || formData.isHybrid) && (
+        <div className="space-y-4 p-6 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+          <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100">
+            Revolving Waqf Configuration
+          </h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="lockPeriod">Lock Period (months)</Label>
+              <Input
+                type="number"
+                id="lockPeriod"
+                min="1"
+                max="240"
+                value={formData.revolvingDetails?.lockPeriodMonths || 12}
+                onChange={(e) => {
+                  const months = parseInt(e.target.value);
+                  const maturityDate = calculateMaturityDate(months);
+                  
+                  setFormData({
+                    ...formData,
+                    revolvingDetails: {
+                      ...formData.revolvingDetails!,
+                      lockPeriodMonths: months,
+                      maturityDate: maturityDate
+                    }
+                  });
+                }}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Min: 1 month, Max: 240 months (20 years)
+              </p>
+            </div>
+            
+            <div>
+              <Label htmlFor="returnMethod">Principal Return Method</Label>
+              <select
+                id="returnMethod"
+                value={formData.revolvingDetails?.principalReturnMethod || 'lump_sum'}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  revolvingDetails: {
+                    ...formData.revolvingDetails!,
+                    principalReturnMethod: e.target.value as 'lump_sum' | 'installments'
+                  }
+                })}
+                className="w-full px-4 py-2 border rounded-md"
+              >
+                <option value="lump_sum">Lump Sum - Return all at maturity</option>
+                <option value="installments">Installments - Return in portions</option>
+              </select>
+            </div>
+          </div>
+          
+          <div className="p-4 bg-white dark:bg-gray-800 rounded-md">
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              <strong>Maturity Date:</strong> {formData.revolvingDetails?.maturityDate ? 
+                new Date(formData.revolvingDetails.maturityDate).toLocaleDateString() : 'Not set'}
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              Your principal will be returned to you on this date. All investment returns 
+              generated during the lock period will be distributed to your selected causes.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Hybrid Allocation Interface */}
+      {formData.isHybrid && formData.selectedCauseIds.length > 0 && (
+        <div className="space-y-4 p-6 bg-gradient-to-r from-green-50 via-blue-50 to-purple-50 dark:from-green-900/20 dark:via-blue-900/20 dark:to-purple-900/20 rounded-lg">
+          <h3 className="text-lg font-semibold">Hybrid Allocation per Cause</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            For each selected cause, specify how to split your contribution across waqf types.
+            Percentages for each cause must sum to 100%.
+          </p>
+          
+          {formData.selectedCauseIds.map(causeId => {
+            const cause = availableCauses.find(c => c.id === causeId);
+            
+            // Initialize allocation if not exists
+            if (!formData.hybridAllocations[causeId]) {
+              const defaultAllocation = {
+                permanent: 50,
+                temporary_consumable: 25,
+                temporary_revolving: 25
+              };
+              // Update state asynchronously to avoid render loop
+              setTimeout(() => {
+                setFormData(prev => ({
+                  ...prev,
+                  hybridAllocations: {
+                    ...prev.hybridAllocations,
+                    [causeId]: defaultAllocation
+                  }
+                }));
+              }, 0);
+            }
+            
+            const allocation = formData.hybridAllocations[causeId] || {
+              permanent: 50,
+              temporary_consumable: 25,
+              temporary_revolving: 25
+            };
+            
+            return (
+              <div key={causeId} className="p-4 bg-white dark:bg-gray-800 rounded-lg space-y-3">
+                <h4 className="font-semibold">{cause?.name}</h4>
+                
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label>Permanent %</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={allocation.permanent}
+                      onChange={(e) => {
+                        const newAllocation = {
+                          ...formData.hybridAllocations,
+                          [causeId]: {
+                            ...allocation,
+                            permanent: parseFloat(e.target.value) || 0
+                          }
+                        };
+                        setFormData({...formData, hybridAllocations: newAllocation});
+                      }}
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label>Consumable %</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={allocation.temporary_consumable}
+                      onChange={(e) => {
+                        const newAllocation = {
+                          ...formData.hybridAllocations,
+                          [causeId]: {
+                            ...allocation,
+                            temporary_consumable: parseFloat(e.target.value) || 0
+                          }
+                        };
+                        setFormData({...formData, hybridAllocations: newAllocation});
+                      }}
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label>Revolving %</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      value={allocation.temporary_revolving}
+                      onChange={(e) => {
+                        const newAllocation = {
+                          ...formData.hybridAllocations,
+                          [causeId]: {
+                            ...allocation,
+                            temporary_revolving: parseFloat(e.target.value) || 0
+                          }
+                        };
+                        setFormData({...formData, hybridAllocations: newAllocation});
+                      }}
+                    />
+                  </div>
+                </div>
+                
+                {/* Validation Indicator */}
+                {(() => {
+                  const total = allocation.permanent + allocation.temporary_consumable + allocation.temporary_revolving;
+                  const isValid = Math.abs(total - 100) < 0.01;
+                  return (
+                    <div className={`text-sm font-medium ${isValid ? 'text-green-600' : 'text-red-600'}`}>
+                      Total: {total.toFixed(1)}% {isValid ? '✓' : '⚠️ Must equal 100%'}
+                    </div>
+                  );
+                })()}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {showCausesModal && (
         <CausesModal
           isOpen={showCausesModal}
-          causes={availableCauses.map(convertBasicCauseToCause)}
+          causes={availableCauses}
           isLoading={isLoadingCauses}
           error={causesError}
           selected={formData.selectedCauseIds}
           onClose={() => setShowCausesModal(false)}
-          onCauseSelect={(ids) => setFormData({...formData, selectedCauseIds: ids})}
+          onCauseSelect={(ids) => {
+            // Clean up hybrid allocations for deselected causes
+            const cleanedAllocations = formData.isHybrid ? 
+              Object.fromEntries(
+                Object.entries(formData.hybridAllocations).filter(([causeId]) => ids.includes(causeId))
+              ) : formData.hybridAllocations;
+            
+            setFormData({
+              ...formData, 
+              selectedCauseIds: ids,
+              hybridAllocations: cleanedAllocations
+            });
+          }}
+          selectedWaqfType={formData.waqfType === 'hybrid' ? null : formData.waqfType}
         />
       )}
 
@@ -382,19 +1188,46 @@ export function WaqfForm({
             <Input
               id="waqfAsset"
               type="number"
-              min="1"
+              min="100"
               step="0.01"
               value={formData.waqfAsset}
               onChange={(e) => setFormData({...formData, waqfAsset: parseFloat(e.target.value) || 0})}
-              className={`w-full text-sm sm:text-base ${formErrors.waqfAsset ? 'border-red-500' : ''}`}
-              placeholder="Enter the principal endowment amount"
+              className={`w-full text-sm sm:text-base ${formErrors.waqfAsset ? 'border-red-500' : formData.waqfAsset > 0 && formData.waqfAsset < 100 ? 'border-orange-400' : ''}`}
+              placeholder="Minimum $100"
             />
             {formErrors.waqfAsset && (
-              <p className="text-red-500 text-xs mt-1">{formErrors.waqfAsset}</p>
+              <p className="text-red-500 text-xs mt-1 flex items-center gap-1">
+                <span>❌</span> {formErrors.waqfAsset}
+              </p>
             )}
-            <p className="text-xs text-gray-500 mt-1">
-              This principal amount will be preserved and invested. Only the investment returns will be distributed to your selected causes.
-            </p>
+            {formData.waqfAsset > 0 && formData.waqfAsset < 100 && !formErrors.waqfAsset && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 flex items-start gap-2">
+                <span className="text-orange-600">⚠️</span>
+                <div className="flex-1 text-xs">
+                  <p className="font-semibold text-orange-800 mb-1">Minimum Amount Not Met</p>
+                  <p className="text-orange-700">
+                    The minimum waqf asset is <strong>$100</strong>. You need <strong>${(100 - formData.waqfAsset).toFixed(2)}</strong> more to meet the requirement.
+                  </p>
+                </div>
+              </div>
+            )}
+            {formData.waqfAsset >= 100 && (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-2 flex items-center gap-2">
+                <span className="text-green-600">✅</span>
+                <p className="text-xs text-green-700 font-medium">
+                  Great! Your waqf asset meets the minimum requirement.
+                </p>
+              </div>
+            )}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-2">
+              <div className="flex items-start gap-2">
+                <span className="text-blue-600">💰</span>
+                <div className="flex-1 text-xs text-blue-700">
+                  <p className="font-semibold mb-1">How it works:</p>
+                  <p>This principal amount will be preserved and invested. Only the investment returns will be distributed to your selected charitable causes perpetually.</p>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -429,6 +1262,39 @@ export function WaqfForm({
           </div>
 
           <div className="space-y-2">
+            <Label htmlFor="donorPhone" className="text-sm sm:text-base">
+              Donor Phone Number
+            </Label>
+            <Input
+              id="donorPhone"
+              type="tel"
+              value={formData.donorPhone}
+              onChange={(e) => setFormData({...formData, donorPhone: e.target.value})}
+              className={`w-full text-sm sm:text-base ${formErrors.donorPhone ? 'border-red-500' : ''}`}
+              placeholder="e.g., +1 (555) 123-4567"
+            />
+            {formErrors.donorPhone && (
+              <p className="text-red-500 text-xs mt-1">{formErrors.donorPhone}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="donorAddress" className="text-sm sm:text-base">
+              Donor Address
+            </Label>
+            <Textarea
+              id="donorAddress"
+              value={formData.donorAddress}
+              onChange={(e) => setFormData({...formData, donorAddress: e.target.value})}
+              className={`w-full min-h-[80px] text-sm sm:text-base ${formErrors.donorAddress ? 'border-red-500' : ''}`}
+              placeholder="Enter your full address"
+            />
+            {formErrors.donorAddress && (
+              <p className="text-red-500 text-xs mt-1">{formErrors.donorAddress}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
             <Label htmlFor="description" className="text-sm sm:text-base">
               Description
             </Label>
@@ -446,7 +1312,8 @@ export function WaqfForm({
 
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
           <button
-            type="submit" 
+            type="button"
+            onClick={handleReviewAndSign}
             style={{
               background: isSubmitting 
                 ? 'linear-gradient(to right, #93c5fd, #c4b5fd)' 
@@ -477,9 +1344,9 @@ export function WaqfForm({
               ) : (
                 <>
                   <svg className="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                  <span>Submit Waqf</span>
+                  <span>📜 Review & Sign Agreement</span>
                 </>
               )}
             </div>
@@ -494,6 +1361,53 @@ export function WaqfForm({
           </button>
         </div>
       </form>
+
+      {/* Waqf Deed Modal */}
+      <WaqfDeedModal
+        isOpen={showWaqfDeed}
+        onClose={() => {
+          setShowWaqfDeed(false);
+          setIsSubmitting(false);
+        }}
+        onSign={handleSubmit}
+        waqfData={{
+          name: formData.name,
+          waqfAsset: formData.waqfAsset,
+          waqfType: formData.waqfType,
+          donorName: formData.donorName,
+          donorEmail: formData.donorEmail,
+          donorPhone: formData.donorPhone,
+          donorAddress: formData.donorAddress,
+          description: formData.description,
+          selectedCauses: formData.selectedCauseIds.map(id => {
+            const cause = availableCauses.find(c => c.id === id);
+            return cause?.name || id;
+          }),
+          causeAllocation: formData.selectedCauseIds.reduce((acc, id) => {
+            const cause = availableCauses.find(c => c.id === id);
+            if (formData.isHybrid) {
+              // For hybrid, show the sum of all allocation types
+              const allocation = formData.hybridAllocations[id];
+              const total = allocation ? 
+                (allocation.permanent || 0) + 
+                (allocation.temporary_consumable || 0) + 
+                (allocation.temporary_revolving || 0) : 0;
+              return { ...acc, [cause?.name || id]: Math.round(total) };
+            } else {
+              // For non-hybrid, distribute equally
+              return { ...acc, [cause?.name || id]: Math.round(100 / formData.selectedCauseIds.length) };
+            }
+          }, {}),
+          isHybrid: formData.isHybrid,
+          hybridAllocations: formData.isHybrid ? Object.entries(formData.hybridAllocations)
+            .filter(([causeId]) => formData.selectedCauseIds.includes(causeId))
+            .reduce((acc, [causeId, allocation]) => {
+              const cause = availableCauses.find(c => c.id === causeId);
+              return { ...acc, [cause?.name || causeId]: allocation };
+            }, {}) : undefined
+        }}
+        isSubmitting={isSubmitting}
+      />
     </div>
   );
 }

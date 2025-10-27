@@ -1,6 +1,7 @@
 // src/lib/admin-utils.ts
 import { listDocs, getDoc, setDoc, deleteDoc, type Doc } from '@junobuild/core';
 import { logActivity } from './activity-utils';
+import { logger } from './logger';
 
 // Digital platform permissions with Islamic governance inspiration
 type AdminPermission = 
@@ -41,18 +42,14 @@ interface AdminUser {
   deletedBy?: string;
 }
 
-interface AdminDoc extends Doc<AdminUser> {
-  hooks?: {
-    assert?: string[];
-    post?: string[];
-  };
-}
+// AdminDoc type removed - unused
 
 // Admin request types for two-stage approval workflow
 type AdminRequestType = 'add' | 'remove';
 type AdminRequestStatus = 'pending' | 'approved' | 'rejected';
 
 interface AdminRequest {
+  id: string; // Required by Rust backend
   requestId: string;
   type: AdminRequestType;
   status: AdminRequestStatus;
@@ -64,6 +61,9 @@ interface AdminRequest {
   targetRole?: AdminRole; // For add requests
   targetPermissions?: AdminPermission[]; // For add requests
   reason: string; // Justification for the request
+  justification: string; // Same as reason, for Rust backend compatibility
+  targetAdminEmail: string; // Required by Rust backend
+  createdAt: number; // Required by Rust backend
   reviewedBy?: string; // Platform Admin who approved/rejected
   reviewedAt?: number;
   reviewNotes?: string; // Platform Admin's notes
@@ -105,10 +105,7 @@ const validateAdminUser = (data: Partial<AdminUser>): data is AdminUser => {
   );
 };
 
-const validateRolePermissions = (user: AdminUser) => {
-  const allowedPermissions = ROLE_PERMISSIONS[user.role];
-  return user.permissions.every(perm => allowedPermissions.includes(perm));
-};
+// validateRolePermissions removed - unused
 
 
 // Admin request workflow functions
@@ -128,19 +125,24 @@ const createAdminRequest = async (
   }
 
   const requestId = `admin_req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const createdAt = Date.now();
   
   const requestData: AdminRequest = {
+    id: requestId, // Required by Rust backend
     requestId,
     type,
     status: 'pending',
     requestedBy,
-    requestedAt: Date.now(),
+    requestedAt: createdAt,
+    createdAt, // Required by Rust backend
     targetUserId,
     targetUserEmail,
     targetUserName,
+    targetAdminEmail: targetUserEmail || '', // Required by Rust backend
     targetRole,
     targetPermissions: targetPermissions ?? (targetRole ? ROLE_PERMISSIONS[targetRole] : undefined),
-    reason
+    reason,
+    justification: reason // Required by Rust backend (same as reason)
   };
 
   try {
@@ -166,7 +168,7 @@ const createAdminRequest = async (
     
     return requestId;
   } catch (error) {
-    console.error('Failed to create admin request:', error);
+    logger.error('Failed to create admin request', { error, requestedBy, type, targetUserId });
     throw new Error(`Failed to create admin request: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
@@ -183,7 +185,7 @@ const listAdminRequests = async (status?: AdminRequestStatus): Promise<AdminRequ
     
     return items;
   } catch (error) {
-    console.error('Failed to list admin requests:', error);
+    logger.error('Failed to list admin requests', { error });
     return [];
   }
 };
@@ -213,9 +215,9 @@ const approveAdminRequest = async (
     }
 
     // Execute the admin action FIRST (before updating request status)
-    console.log('🔧 Executing admin action for request:', request.data.type, 'for user:', request.data.targetUserId);
+    logger.info('Executing admin action', { type: request.data.type, targetUserId: request.data.targetUserId });
     if (request.data.type === 'add') {
-      console.log('➕ Adding admin with role:', request.data.targetRole, 'permissions:', request.data.targetPermissions);
+      logger.info('Adding admin', { role: request.data.targetRole, permissions: request.data.targetPermissions });
       await addAdminDirectly(
         request.data.targetUserId,
         reviewedBy,
@@ -224,19 +226,21 @@ const approveAdminRequest = async (
         request.data.targetUserName || '',
         request.data.targetPermissions
       );
-      console.log('✅ Admin added successfully');
+      logger.info('Admin added successfully', { userId: request.data.targetUserId });
     } else if (request.data.type === 'remove') {
-      console.log('➖ Removing admin');
+      logger.info('Removing admin', { userId: request.data.targetUserId });
       await removeAdminDirectly(request.data.targetUserId, reviewedBy);
-      console.log('✅ Admin removed successfully');
+      logger.info('Admin removed successfully', { userId: request.data.targetUserId });
     }
     
     // Update request status AFTER successful admin action
+    const reviewTime = Date.now();
     const updatedRequestData: AdminRequest = {
       ...request.data,
+      id: request.data.id || request.data.requestId, // Ensure id is present
       status: 'approved',
       reviewedBy,
-      reviewedAt: Date.now(),
+      reviewedAt: reviewTime,
       reviewNotes
     };
 
@@ -261,7 +265,7 @@ const approveAdminRequest = async (
       }
     );
   } catch (error) {
-    console.error('Failed to approve admin request:', error);
+    logger.error('Failed to approve admin request', { error, requestId, reviewedBy });
     throw new Error(`Failed to approve admin request: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
@@ -291,11 +295,13 @@ const rejectAdminRequest = async (
     }
 
     // Update request status
+    const reviewTime = Date.now();
     const updatedRequestData: AdminRequest = {
       ...request.data,
+      id: request.data.id || request.data.requestId, // Ensure id is present
       status: 'rejected',
       reviewedBy,
-      reviewedAt: Date.now(),
+      reviewedAt: reviewTime,
       reviewNotes
     };
 
@@ -320,7 +326,7 @@ const rejectAdminRequest = async (
       }
     );
   } catch (error) {
-    console.error('Failed to reject admin request:', error);
+    logger.error('Failed to reject admin request', { error, requestId, reviewedBy });
     throw new Error(`Failed to reject admin request: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
@@ -347,7 +353,7 @@ const isAdmin = async (userId: string): Promise<boolean> => {
     });
     return !!admin;
   } catch (error) {
-    console.error('Failed to check admin status:', error);
+    logger.error('Failed to check admin status', { error, userId });
     return false;
   }
 };
@@ -371,7 +377,7 @@ const hasPermission = async (
     });
     return admin?.data?.permissions?.includes(permission) || false;
   } catch (error) {
-    console.error('Failed to check permissions:', error);
+    logger.error('Failed to check permissions', { error, userId, permission });
     return false;
   }
 };
@@ -395,7 +401,7 @@ const getAdminUser = async (userId: string): Promise<AdminUser | null> => {
     });
     return admin?.data || null;
   } catch (error) {
-    console.error('Failed to get admin user:', error);
+    logger.error('Failed to get admin user', { error, userId });
     return null;
   }
 };
@@ -408,10 +414,10 @@ const addAdminDirectly = async (
   name: string = '',
   permissions?: AdminPermission[]
 ): Promise<void> => {
-  console.log('💾 Starting addAdminDirectly for:', { userId, role, email, name, permissions });
+  logger.info('Starting addAdminDirectly', { userId, role, email, name, hasCustomPermissions: !!permissions });
   
   const finalPermissions = permissions ?? ROLE_PERMISSIONS[role];
-  console.log('🔑 Final permissions:', finalPermissions);
+  logger.debug('Final permissions calculated', { permissions: finalPermissions });
   
   // Structure data to match Rust backend expectations
   const adminData = {
@@ -427,7 +433,7 @@ const addAdminDirectly = async (
     lastActive: Date.now()
   };
   
-  console.log('📋 Admin data to save:', adminData);
+  logger.debug('Admin data prepared', { userId, role });
   
   // Skip validation for now during testing
   // if (!validateAdminUser(adminData)) {
@@ -436,22 +442,18 @@ const addAdminDirectly = async (
   
   try {
     // First check if admin already exists
-    console.log('🔍 Checking if admin already exists:', userId);
+    logger.debug('Checking if admin exists', { userId });
     const existing = await getDoc({
       collection: ADMIN_COLLECTION,
       key: userId
     }).catch(() => null); // Ignore errors if document doesn't exist
     
     if (existing) {
-      console.log('⚠️  Admin already exists:', existing.data);
+      logger.warn('Admin already exists', { userId });
       throw new Error(`Admin with userId ${userId} already exists`);
     }
     
-    console.log('📤 Saving new admin to collection:', ADMIN_COLLECTION);
-    console.log('🏗️  Document structure:');
-    console.log('   - Key:', userId);
-    console.log('   - Data keys:', Object.keys(adminData));
-    console.log('   - Full data:', JSON.stringify(adminData, null, 2));
+    logger.debug('Saving new admin', { collection: ADMIN_COLLECTION, userId });
     
     await setDoc({
       collection: ADMIN_COLLECTION,
@@ -460,7 +462,7 @@ const addAdminDirectly = async (
         data: adminData
       }
     });
-    console.log('✅ Successfully saved admin document to Juno');
+    logger.info('Successfully saved admin document', { userId, role });
     
     // Log the activity - temporarily disabled for testing
     // await logActivity(
@@ -473,20 +475,22 @@ const addAdminDirectly = async (
     //     status: role
     //   }
     // );
-    console.log('📋 Skipping activity log for testing');
+    logger.debug('Skipping activity log for testing');
   } catch (error) {
-    console.error('❌ ERROR in addAdminDirectly:');
-    console.error('   - Error type:', error?.constructor?.name);
-    console.error('   - Error message:', (error as any)?.message);
-    console.error('   - Error code:', (error as any)?.code);
-    console.error('   - Full error:', error);
+    logger.error('ERROR in addAdminDirectly', {
+      error,
+      errorType: error?.constructor?.name,
+      errorMessage: (error as Error)?.message,
+      userId,
+      role
+    });
     
     if (error instanceof Error) {
       if (error.message.includes('Only super admins')) {
         throw new Error('Permission denied: Requires super admin privileges');
       }
       if (error.message.includes('juno.error.no_version_provided')) {
-        console.error('🔍 Version error detected - this might be an update vs create issue');
+        logger.error('Version error detected', { userId });
         throw new Error('Version error: This might be a document update conflict. The admin might already exist.');
       }
       if (error.message.includes('already exists')) {
@@ -502,7 +506,7 @@ const removeAdminDirectly = async (
   userId: string,
   currentUserId: string
 ): Promise<void> => {
-  console.log('🗑️  Starting removeAdminDirectly for:', { userId, currentUserId });
+  logger.info('Starting removeAdminDirectly', { userId, currentUserId });
   
   if (!userId || !currentUserId) {
     throw new Error('Missing required fields: userId and currentUserId');
@@ -510,33 +514,32 @@ const removeAdminDirectly = async (
 
   try {
     // First, get the document to retrieve its version
-    console.log('🔍 Looking up existing admin:', userId);
+    logger.debug('Looking up existing admin', { userId });
     const existing = await getDoc<AdminUser>({
       collection: ADMIN_COLLECTION,
       key: userId
     });
 
     if (!existing) {
-      console.log('❌ Admin not found:', userId);
+      logger.warn('Admin not found', { userId });
       throw new Error(`Admin not found: ${userId}`);
     }
     
-    console.log('✅ Found existing admin:', {
+    logger.debug('Found existing admin', {
       key: existing.key,
-      version: existing.version,
-      data: existing.data
+      version: existing.version
     });
 
     // Delete the document with proper version
-    console.log('🗑️  Deleting admin document with version:', existing.version);
+    logger.debug('Deleting admin document', { userId, version: existing.version });
     await deleteDoc({
       collection: ADMIN_COLLECTION,
       doc: existing
     });
-    console.log('✅ Successfully deleted admin document');
+    logger.info('Successfully deleted admin document', { userId });
     
     // Log the activity - temporarily disabled for testing
-    console.log('📋 Skipping activity log for testing');
+    logger.debug('Skipping activity log for testing');
     // await logActivity(
     //   'admin_removed',
     //   currentUserId,
@@ -547,12 +550,12 @@ const removeAdminDirectly = async (
     //   }
     // );
   } catch (error) {
-    console.error('❌ ERROR in removeAdminDirectly:');
-    console.error('   - User ID:', userId);
-    console.error('   - Error type:', error?.constructor?.name);
-    console.error('   - Error message:', (error as any)?.message);
-    console.error('   - Error code:', (error as any)?.code);
-    console.error('   - Full error:', error);
+    logger.error('ERROR in removeAdminDirectly', {
+      error,
+      userId,
+      errorType: error?.constructor?.name,
+      errorMessage: (error as Error)?.message
+    });
     
     throw new Error(`Admin removal failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -620,7 +623,7 @@ const updateAdmin = async (
       }
     );
   } catch (error) {
-    console.error('Failed to update admin:', error);
+    logger.error('Failed to update admin', { error, userId, currentUserId });
     throw new Error(`Admin update failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
@@ -662,23 +665,23 @@ const removeAdmin = async (
   currentUserId: string,
   reason: string = ''
 ): Promise<string> => {
-  console.log('🗑️  Starting removeAdmin for:', { userId, currentUserId, reason });
+  logger.info('Starting removeAdmin', { userId, currentUserId, hasReason: !!reason });
   
   // Get user info for the request
-  console.log('🔍 Getting user info for:', userId);
+  logger.debug('Getting user info', { userId });
   const userToRemove = await getAdminUser(userId);
-  console.log('📋 User to remove:', userToRemove);
+  logger.debug('User to remove retrieved', { userId, hasUser: !!userToRemove });
   
   // Check permissions
-  console.log('🔑 Checking permissions for current user:', currentUserId);
+  logger.debug('Checking permissions', { currentUserId });
   const canCreateRequests = await canCreateAdminRequests(currentUserId);
-  console.log('   - Can create requests (Compliance Officer):', canCreateRequests);
+  logger.debug('Can create requests (Compliance Officer)', { canCreateRequests });
   const canApproveRequests = await canApproveAdminRequests(currentUserId);
-  console.log('   - Can approve requests (Platform Admin):', canApproveRequests);
+  logger.debug('Can approve requests (Platform Admin)', { canApproveRequests });
   
   // Check if current user can create admin requests
   if (canCreateRequests) {
-    console.log('📝 Creating admin removal request (Compliance Officer path)');
+    logger.info('Creating admin removal request (Compliance Officer path)', { userId });
     // Compliance Officer - create request
     return await createAdminRequest(
       currentUserId,
@@ -689,12 +692,12 @@ const removeAdmin = async (
       userToRemove?.name
     );
   } else if (canApproveRequests) {
-    console.log('⚡ Executing direct admin removal (Platform Admin path)');
+    logger.info('Executing direct admin removal (Platform Admin path)', { userId });
     // Platform Admin - direct action
     await removeAdminDirectly(userId, currentUserId);
     return 'direct'; // Indicate direct execution
   } else {
-    console.log('❌ Permission denied for user:', currentUserId);
+    logger.warn('Permission denied', { currentUserId, action: 'removeAdmin' });
     throw new Error('Permission denied: Insufficient privileges to remove admin');
   }
 };
@@ -706,7 +709,7 @@ const listAdmins = async (): Promise<Doc<AdminUser>[]> => {
     });
     return items;
   } catch (error) {
-    console.error('Failed to list admins:', error);
+    logger.error('Failed to list admins', { error });
     return [];
   }
 };

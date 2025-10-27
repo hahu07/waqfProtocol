@@ -7,31 +7,71 @@ import { useWaqfCreatorCheck } from "@/hooks/useWaqfCreatorCheck";
 import { EnhancedWaqfDashboard } from "@/components/waqf/EnhancedWaqfDashboard";
 import { Button } from "@/components/ui/button";
 import { WaqfForm } from "@/components/waqf/WaqfForm";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { ReportModal } from '@/components/waqf/reportModal';
+import { WaqfDeedViewer } from '@/components/waqf/WaqfDeedViewer';
 import type { Cause } from "@/types/waqfs";
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { listActiveCauses } from "@/lib/cause-utils";
+import { logger } from '@/lib/logger';
+import { canAcceptContribution, getCompletionStatus } from '@/lib/consumable-contribution-handler';
+import { returnTranche } from '@/lib/api/tranche-operations';
+import { AddFundsModal } from '@/components/waqf/AddFundsModal';
 
 
 export default function Page() {
-  const { isLoading: authLoading, error: authError } = useAuth();
+  const router = useRouter();
+  const { user, isLoading: authLoading, error: authError } = useAuth();
   const { isLoading: roleCheckLoading } = useWaqfCreatorCheck();
   const [showReport, setShowReport] = useState(false);
-  const { waqf, waqfDoc, waqfs, loading: dataLoading, error: dataError, refresh, createWaqf, updateWaqf } = useFetchWaqfData();
+  const [showDeedViewer, setShowDeedViewer] = useState(false);
+  const [showAddFundsModal, setShowAddFundsModal] = useState(false);
+  const { waqf, waqfDoc, waqfs, loading: dataLoading, error: dataError, refresh, createWaqf, updateWaqf, recordDonation } = useFetchWaqfData();
   const [showForm, setShowForm] = useState(false);
   const [editMode, setEditMode] = useState(false);
   const [editingWaqf, setEditingWaqf] = useState<typeof waqf | null>(null);
   const [selectedWaqfIndex, setSelectedWaqfIndex] = useState(0);
-  
-  // Get the first waqf from the list (user's waqf)
-  const userWaqf = waqfs && waqfs.length > 0 ? waqfs[selectedWaqfIndex] : waqf;
-  const MAX_WAQFS = 5;
-  const canCreateMore = (waqfs?.length || 0) < MAX_WAQFS;
-  console.log('📋 User Waqf:', userWaqf, 'Total waqfs:', waqfs?.length, 'Can create more:', canCreateMore);
   const [availableCauses, setAvailableCauses] = useState<Cause[]>([]);
   const [causesLoading, setCausesLoading] = useState(true);
   const [causesError, setCausesError] = useState<Error | null>(null);
+  
+  // Get the first waqf from the list (user's waqf)
+  const selectedWaqf = waqfs && waqfs.length > 0 ? waqfs[selectedWaqfIndex] : waqf;
+  const MAX_WAQFS = 5;
+  const canCreateMore = (waqfs?.length || 0) < MAX_WAQFS;
+  
+  // Enrich waqf with actual cause details
+  const userWaqf = useMemo(() => {
+    if (!selectedWaqf) return null;
+    
+    // If supportedCauses is already populated, return as-is
+    if (selectedWaqf.supportedCauses && selectedWaqf.supportedCauses.length > 0) {
+      return selectedWaqf;
+    }
+    
+    // Otherwise, populate from availableCauses based on selectedCauses
+    const supportedCauses = selectedWaqf.selectedCauses
+      ?.map(causeId => availableCauses.find(c => c.id === causeId))
+      .filter((c): c is Cause => c !== undefined) || [];
+    
+    logger.debug('Enriching waqf with causes', {
+      selectedCauses: selectedWaqf.selectedCauses,
+      foundCauses: supportedCauses.length,
+      supportedCausesCount: supportedCauses.length
+    });
+    
+    return {
+      ...selectedWaqf,
+      supportedCauses
+    };
+  }, [selectedWaqf, availableCauses]);
+  
+  logger.debug('User waqf state', { 
+    hasWaqf: !!userWaqf, 
+    totalWaqfs: waqfs?.length, 
+    canCreateMore 
+  });
 
   // Fetch active causes when auth is complete
   useEffect(() => {
@@ -42,14 +82,14 @@ export default function Page() {
       }
       
       try {
-        console.log('🔍 Fetching active causes...');
+        logger.debug('Fetching active causes');
         setCausesLoading(true);
         setCausesError(null);
         const causes = await listActiveCauses();
-        console.log('✅ Fetched causes:', causes.length, causes);
+        logger.info('Fetched active causes', { count: causes.length });
         setAvailableCauses(causes);
       } catch (error) {
-        console.error('❌ Error fetching causes:', error);
+        logger.error('Error fetching causes', { error });
         setCausesError(error instanceof Error ? error : new Error('Failed to load causes'));
       } finally {
         setCausesLoading(false);
@@ -118,14 +158,22 @@ export default function Page() {
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Your Waqf Portfolio</h1>
               <p className="text-gray-600 text-sm sm:text-base">Manage your perpetual charitable endowments</p>
             </div>
-            <div className="flex gap-2 sm:gap-3">
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               <Button 
-                onClick={() => setShowReport(true)}
+                onClick={() => router.push('/waqf/reports')}
                 variant="outline"
                 className="flex-1 sm:flex-none"
-                style={{ borderColor: '#9333ea', color: '#9333ea' }}
+                style={{ borderColor: '#2563eb', color: '#2563eb' }}
               >
-                📊 View Report
+                📊 Reports
+              </Button>
+              <Button 
+                onClick={() => router.push('/waqf/impact')}
+                variant="outline"
+                className="flex-1 sm:flex-none"
+                style={{ borderColor: '#10b981', color: '#10b981' }}
+              >
+                🌍 Impact
               </Button>
               <Button 
                 onClick={() => {
@@ -181,36 +229,68 @@ export default function Page() {
               </div>
               <WaqfForm 
                 initialData={editMode ? editingWaqf ?? undefined : undefined}
+                userId={user?.key || ''}
                 onSubmit={async (waqfData) => {
                   try {
-                    console.log('💾 Saving Waqf:', waqfData, 'Edit Mode:', editMode, 'Editing Waqf:', editingWaqf);
+                    logger.info('Saving waqf', { editMode, hasExistingWaqf: !!editingWaqf });
+                    
                     if (editMode && editingWaqf) {
                       // Update existing waqf
                       await updateWaqf(editingWaqf.id, waqfData);
-                      console.log('✅ Waqf updated successfully');
+                      logger.info('Waqf updated successfully', { waqfId: editingWaqf.id });
+                      alert('✅ Waqf updated successfully!');
                     } else {
                       // Create new waqf
                       if (!canCreateMore) {
-                        alert(`Maximum limit reached! You can create up to ${MAX_WAQFS} waqfs.`);
+                        alert(`⚠️ Maximum limit reached! You can create up to ${MAX_WAQFS} waqfs.`);
                         return;
                       }
-                      const newWaqf = await createWaqf(waqfData);
-                      console.log('✅ Waqf created successfully:', newWaqf);
+                      const newWaqfId = await createWaqf(waqfData);
+                      logger.info('Waqf created successfully', { waqfId: newWaqfId });
+                      alert('✅ Waqf created successfully! Your perpetual charitable endowment is now active.');
                     }
+                    
                     setShowForm(false);
                     setEditMode(false);
                     setEditingWaqf(null);
                     await refresh();
                   } catch (error) {
-                    console.error('❌ Error saving Waqf:', error);
-                    alert(`Failed to save Waqf: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    logger.error('Error saving waqf', { error, editMode });
+                    
+                    // Parse and display user-friendly error messages
+                    let errorMessage = 'Failed to save Waqf';
+                    
+                    if (error instanceof Error) {
+                      const msg = error.message;
+                      
+                      // Extract specific validation errors from backend
+                      if (msg.includes('missing field')) {
+                        const fieldMatch = msg.match(/missing field `([^`]+)`/);
+                        const field = fieldMatch ? fieldMatch[1] : 'required field';
+                        errorMessage = `Missing required field: ${field}. Please ensure all required information is provided.`;
+                      } else if (msg.includes('Invalid waqf data structure')) {
+                        errorMessage = 'Invalid waqf data. Please check all fields and try again.';
+                      } else if (msg.includes('Waqf asset must be')) {
+                        errorMessage = 'Please enter a valid waqf asset amount (must be greater than 0).';
+                      } else if (msg.includes('email')) {
+                        errorMessage = 'Please enter a valid email address.';
+                      } else if (msg.includes('Permission denied')) {
+                        errorMessage = 'You do not have permission to create/edit waqfs. Please contact support.';
+                      } else if (msg.includes('Failed to fetch') || msg.includes('Network')) {
+                        errorMessage = 'Network error. Please check your internet connection and try again.';
+                      } else if (msg.includes('timeout')) {
+                        errorMessage = 'Request timed out. Please try again.';
+                      } else if (msg.includes('authentication') || msg.includes('login')) {
+                        errorMessage = 'Authentication error. Please log in again.';
+                      } else {
+                        errorMessage = msg;
+                      }
+                    }
+                    
+                    alert(`❌ ${errorMessage}`);
                   }
                 }}
-                availableCauses={(() => {
-                  const mapped = availableCauses.map((c: Cause) => ({ id: c.id, name: c.name }));
-                  console.log('📋 Passing causes to WaqfForm:', mapped.length, mapped);
-                  return mapped;
-                })()}
+                availableCauses={availableCauses}
                 isLoadingCauses={causesLoading}
                 causesError={causesError}
               />
@@ -275,8 +355,18 @@ export default function Page() {
                 </div>
               )}
               
-              {/* Edit Button */}
-              <div className="flex justify-end">
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3">
+                {userWaqf.deedDocument && (
+                  <Button
+                    onClick={() => setShowDeedViewer(true)}
+                    variant="outline"
+                    className="flex items-center gap-2"
+                    style={{ borderColor: '#2563eb', color: '#2563eb' }}
+                  >
+                    📜 View Waqf Deed
+                  </Button>
+                )}
                 <Button
                   onClick={() => {
                     setEditMode(true);
@@ -295,14 +385,46 @@ export default function Page() {
               <EnhancedWaqfDashboard 
                 profile={userWaqf}
                 onAddFunds={() => {
-                  console.log('💰 Add funds clicked');
-                  // TODO: Implement add funds modal
-                  alert('Add funds feature coming soon!');
+                  logger.debug('Add funds clicked', { waqfId: userWaqf.id, waqfType: userWaqf.waqfType });
+                  setShowAddFundsModal(true);
                 }}
                 onDistribute={() => {
-                  console.log('📤 Distribute clicked');
+                  logger.debug('Distribute clicked');
                   // TODO: Implement distribution modal
                   alert('Distribution feature coming soon!');
+                }}
+                onReturnTranche={async (trancheId: string) => {
+                  logger.debug('Return tranche clicked', { waqfId: userWaqf.id, trancheId });
+                  
+                  const confirm = window.confirm(
+                    '🔄 Return Matured Funds?\n\n' +
+                    'This will return the matured tranche amount to you. ' +
+                    'The funds will be removed from your waqf balance.\n\n' +
+                    'Proceed with return?'
+                  );
+                  
+                  if (!confirm) {
+                    logger.debug('Tranche return cancelled by user');
+                    return;
+                  }
+                  
+                  try {
+                    const result = await returnTranche(userWaqf.id, trancheId);
+                    
+                    if (result.success) {
+                      alert('✅ Tranche returned successfully!\n\nThe funds have been removed from your waqf balance.');
+                      logger.info('Tranche returned successfully', { waqfId: userWaqf.id, trancheId });
+                      
+                      // Refresh data to show updated state
+                      await refresh();
+                    } else {
+                      throw new Error(result.error || 'Failed to return tranche');
+                    }
+                  } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+                    logger.error('Failed to return tranche', { error: errorMsg });
+                    alert(`❌ Failed to return tranche: ${errorMsg}`);
+                  }
                 }}
               />
             </div>
@@ -343,6 +465,85 @@ export default function Page() {
           onClose={() => setShowReport(false)}
           isLoading={dataLoading}
         />
+        
+        {userWaqf && (
+          <>
+            <WaqfDeedViewer
+              waqf={userWaqf}
+              isOpen={showDeedViewer}
+              onClose={() => setShowDeedViewer(false)}
+            />
+            
+            <AddFundsModal
+              isOpen={showAddFundsModal}
+              onClose={() => setShowAddFundsModal(false)}
+              waqf={userWaqf}
+              onSubmit={async (amount: number, customLockPeriod?: number) => {
+                logger.debug('Processing add funds', { waqfId: userWaqf.id, amount, customLockPeriod });
+                
+                try {
+                  // For consumable waqfs, check if they can accept contributions
+                  if (userWaqf.waqfType === 'temporary_consumable') {
+                    const contributionResult = canAcceptContribution(userWaqf, amount);
+                    
+                    if (!contributionResult.accepted) {
+                      alert(`❌ Cannot add funds: ${contributionResult.reason}`);
+                      logger.info('Contribution rejected', { 
+                        waqfId: userWaqf.id, 
+                        amount, 
+                        reason: contributionResult.reason 
+                      });
+                      throw new Error(contributionResult.reason);
+                    }
+                  }
+                  
+                  // Record the donation
+                  await recordDonation({
+                    waqfId: userWaqf.id,
+                    amount: amount,
+                    currency: 'USD',
+                    date: new Date().toISOString(),
+                    status: 'completed',
+                    donorName: userWaqf.donor.name
+                  });
+                  
+                  logger.info('Donation recorded, now updating waqf financial metrics');
+                  
+                  // Update the waqf's financial metrics
+                  const updatedFinancial = {
+                    ...userWaqf.financial,
+                    totalDonations: userWaqf.financial.totalDonations + amount,
+                    currentBalance: userWaqf.financial.currentBalance + amount
+                  };
+                  
+                  await updateWaqf(userWaqf.id, {
+                    financial: updatedFinancial
+                  });
+                  
+                  const newBalance = updatedFinancial.currentBalance;
+                  
+                  alert(`✅ Successfully added $${amount} to your waqf!\n\nNew Balance: $${newBalance.toFixed(2)}`);
+                  logger.info('Funds added successfully', { 
+                    waqfId: userWaqf.id, 
+                    amount, 
+                    newBalance 
+                  });
+                  
+                  // Refresh the waqf data
+                  await refresh();
+                } catch (error) {
+                  logger.error('Error recording donation', { 
+                    error,
+                    errorMessage: error instanceof Error ? error.message : String(error)
+                  });
+                  const errorMsg = error instanceof Error ? error.message : 'Unknown error occurred';
+                  alert(`❌ Failed to add funds: ${errorMsg}\n\nPlease try again.`);
+                  throw error;
+                }
+              }}
+            />
+          </>
+        )}
       </ErrorBoundary>
     </div>
   );

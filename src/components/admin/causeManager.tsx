@@ -9,6 +9,7 @@ import type { AdminManagerProps } from './types';
 import { listCauses, createCause, updateCause, deleteCause, approveCause, rejectCause } from '@/lib/cause-utils';
 import { canApproveCauses, canManageCauses } from '@/lib/admin-utils';
 import ReactMarkdown from 'react-markdown';
+import { logger } from '@/lib/logger';
 
 export function CauseManager({ 
   showHeader = true,
@@ -26,6 +27,7 @@ export function CauseManager({
   const [canManage, setCanManage] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Set<string>>(new Set());
 
   const loadCauses = async () => {
     try {
@@ -42,7 +44,7 @@ export function CauseManager({
       }));
       setCauses(causeDocs);
     } catch (error) {
-      console.error('Error loading causes:', error);
+      logger.error('Error loading causes', error instanceof Error ? error : { error });
       setError('Failed to load causes. Please try again.');
     } finally {
       setLoading(false);
@@ -83,7 +85,7 @@ export function CauseManager({
       setShowForm(false);
       setEditingCause(null);
     } catch (error) {
-      console.error('Error saving cause:', error);
+      logger.error('Error saving cause', error instanceof Error ? error : { error });
     }
   };
 
@@ -95,7 +97,7 @@ export function CauseManager({
       await deleteCause(key, userId, userName);
       await loadCauses();
     } catch (error) {
-      console.error('Error deleting cause:', error);
+      logger.error('Error deleting cause', error instanceof Error ? error : { error });
       setDeleteError('Failed to delete cause. Please try again.');
     } finally {
       setDeletingId(null);
@@ -110,7 +112,7 @@ export function CauseManager({
       await approveCause(key, userId, userName);
       await loadCauses();
     } catch (error) {
-      console.error('Error approving cause:', error);
+      logger.error('Error approving cause', error instanceof Error ? error : { error });
       setError('Failed to approve cause. Please try again.');
     } finally {
       setApprovingId(null);
@@ -125,7 +127,7 @@ export function CauseManager({
       await rejectCause(key, userId, userName);
       await loadCauses();
     } catch (error) {
-      console.error('Error rejecting cause:', error);
+      logger.error('Error rejecting cause', error instanceof Error ? error : { error });
       setError('Failed to reject cause. Please try again.');
     } finally {
       setRejectingId(null);
@@ -300,82 +302,236 @@ export function CauseManager({
       {/* Causes Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {causes.map((cause) => (
-          <div key={cause.key} className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-300 hover:-translate-y-1">
+          <div key={cause.key} className="group bg-white rounded-2xl shadow-md border border-gray-200 overflow-hidden hover:shadow-2xl hover:border-gray-300 transition-all duration-300 hover:-translate-y-1 flex flex-col">
             {/* Cover Image */}
             {cause.data.coverImage && (
-              <div className="relative h-48 w-full overflow-hidden bg-gradient-to-br from-blue-100 to-purple-100">
+              <div className="relative h-52 w-full overflow-hidden bg-gradient-to-br from-blue-50 to-purple-50">
                 <img 
                   src={cause.data.coverImage} 
                   alt={cause.data.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                 />
-                <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                  <span className="text-2xl">{cause.data.icon}</span>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent"></div>
+                <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-md px-3 py-2 rounded-xl shadow-lg">
+                  <span className="text-3xl">{cause.data.icon}</span>
+                </div>
+                {/* Status Badges on Image */}
+                <div className="absolute top-4 left-4 flex flex-col gap-2">
+                  <span className={`text-xs px-3 py-1.5 rounded-full font-bold shadow-lg backdrop-blur-md ${
+                    cause.data.isActive 
+                      ? 'bg-green-500/90 text-white' 
+                      : 'bg-gray-500/90 text-white'
+                  }`}>
+                    {cause.data.isActive ? '✅ Active' : '⏸️ Inactive'}
+                  </span>
+                  <span className={`text-xs px-3 py-1.5 rounded-full font-bold shadow-lg backdrop-blur-md ${
+                    cause.data.status === 'approved' ? 'bg-blue-500/90 text-white' :
+                    cause.data.status === 'pending' ? 'bg-yellow-500/90 text-white' :
+                    'bg-red-500/90 text-white'
+                  }`}>
+                    {cause.data.status === 'approved' ? '✔️ Approved' :
+                     cause.data.status === 'pending' ? '⏳ Pending' :
+                     '❌ Rejected'}
+                  </span>
                 </div>
               </div>
             )}
             
             {/* Card Header */}
-            <div className="p-6 border-b border-gray-100">
-              <div className="flex items-start gap-4 mb-3">
+            <div className="p-6 border-b border-gray-100 flex-1">
+              <div className="flex items-start gap-4 mb-4">
                 {!cause.data.coverImage && (
-                  <div 
-                    className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
-                    style={{ background: 'linear-gradient(135deg, #2563eb, #9333ea)' }}
-                  >
-                    {cause.data.icon}
+                  <div className="relative">
+                    <div 
+                      className="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl flex-shrink-0 shadow-md group-hover:shadow-lg transition-shadow"
+                      style={{ background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)' }}
+                    >
+                      {cause.data.icon}
+                    </div>
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-bold text-gray-900 text-lg mb-2 truncate">{cause.data.name}</h3>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
-                      cause.data.isActive 
-                        ? 'bg-green-100 text-green-700' 
-                        : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {cause.data.isActive ? '✅ Active' : '⏸️ Inactive'}
-                    </span>
-                    <span className={`text-xs px-3 py-1 rounded-full font-semibold ${
-                      cause.data.status === 'approved' ? 'bg-blue-100 text-blue-700' :
-                      cause.data.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
-                    }`}>
-                      {cause.data.status === 'approved' ? '✔️ Approved' :
-                       cause.data.status === 'pending' ? '⏳ Pending' :
-                       '❌ Rejected'}
-                    </span>
-                  </div>
+                  <h3 className="font-bold text-gray-900 text-lg mb-2 line-clamp-2 group-hover:text-blue-600 transition-colors leading-tight">
+                    {cause.data.name}
+                  </h3>
+                  {!cause.data.coverImage && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs px-3 py-1.5 rounded-full font-bold shadow-sm ${
+                        cause.data.isActive 
+                          ? 'bg-green-100 text-green-700 border border-green-200' 
+                          : 'bg-gray-100 text-gray-600 border border-gray-200'
+                      }`}>
+                        {cause.data.isActive ? '✅ Active' : '⏸️ Inactive'}
+                      </span>
+                      <span className={`text-xs px-3 py-1.5 rounded-full font-bold shadow-sm ${
+                        cause.data.status === 'approved' ? 'bg-blue-100 text-blue-700 border border-blue-200' :
+                        cause.data.status === 'pending' ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' :
+                        'bg-red-100 text-red-700 border border-red-200'
+                      }`}>
+                        {cause.data.status === 'approved' ? '✔️ Approved' :
+                         cause.data.status === 'pending' ? '⏳ Pending' :
+                         '❌ Rejected'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
               
-              <div className="text-sm text-gray-600 line-clamp-3 leading-relaxed prose prose-sm max-w-none">
-                <ReactMarkdown
-                  components={{
-                    img: ({node, ...props}) => (
-                      <img {...props} className="rounded-lg max-w-full h-auto my-2" alt={props.alt || ''} />
-                    ),
-                    p: ({node, ...props}) => <p {...props} className="mb-2" />
-                  }}
-                >
-                  {cause.data.description}
-                </ReactMarkdown>
+              <div>
+                <div className={`text-sm text-gray-600 leading-relaxed prose prose-sm max-w-none ${
+                  expandedDescriptions.has(cause.key) ? '' : 'line-clamp-3'
+                }`}>
+                  <ReactMarkdown
+                    components={{
+                      img: ({node, ...props}) => (
+                        <img {...props} className="rounded-lg max-w-full h-auto my-2" alt={props.alt || ''} />
+                      ),
+                      p: ({node, ...props}) => <p {...props} className="mb-2" />
+                    }}
+                  >
+                    {cause.data.description}
+                  </ReactMarkdown>
+                </div>
+                {cause.data.description.length > 150 && (
+                  <button
+                    onClick={() => {
+                      setExpandedDescriptions(prev => {
+                        const newSet = new Set(prev);
+                        if (newSet.has(cause.key)) {
+                          newSet.delete(cause.key);
+                        } else {
+                          newSet.add(cause.key);
+                        }
+                        return newSet;
+                      });
+                    }}
+                    className="text-blue-600 hover:text-blue-800 text-xs font-semibold mt-1 transition-colors"
+                  >
+                    {expandedDescriptions.has(cause.key) ? '▲ Show less' : '▼ Read more'}
+                  </button>
+                )}
               </div>
             </div>
             
+            {/* Financial & Waqf Info */}
+            <div className="px-6 py-4 bg-gradient-to-br from-gray-50 to-blue-50/30 border-y border-gray-100 space-y-4">
+              {/* Target Amount & Progress */}
+              {cause.data.targetAmount && (() => {
+                const currency = cause.data.primaryCurrency || 'NGN';
+                const rate = cause.data.exchangeRateToUSD || 1650;
+                const isUSD = currency === 'USD';
+                
+                // Get currency symbol
+                const getCurrencySymbol = (curr: string) => {
+                  switch(curr) {
+                    case 'NGN': return '₦';
+                    case 'EUR': return '€';
+                    case 'GBP': return '£';
+                    case 'SAR': return 'SR';
+                    case 'AED': return 'د.إ';
+                    default: return '$';
+                  }
+                };
+                
+                const symbol = getCurrencySymbol(currency);
+                const targetPrimary = cause.data.targetAmount;
+                const raisedPrimary = cause.data.fundsRaised || 0;
+                const remainingPrimary = Math.max(0, targetPrimary - raisedPrimary);
+                
+                // Calculate USD equivalent if not already USD
+                const targetUSD = isUSD ? targetPrimary : targetPrimary / rate;
+                const raisedUSD = isUSD ? raisedPrimary : raisedPrimary / rate;
+                const remainingUSD = isUSD ? remainingPrimary : remainingPrimary / rate;
+                
+                return (
+                <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">🎯 Funding Goal</span>
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-blue-600">{symbol}{targetPrimary.toLocaleString()}</div>
+                      {!isUSD && (
+                        <div className="text-xs text-gray-500">${targetUSD.toLocaleString(undefined, {maximumFractionDigits: 2})}</div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="flex-1 bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                      <div 
+                        className="bg-gradient-to-r from-blue-500 via-blue-600 to-purple-600 h-2.5 rounded-full transition-all duration-500 shadow-sm"
+                        style={{ width: `${Math.min(100, ((cause.data.fundsRaised || 0) / cause.data.targetAmount) * 100)}%` }}
+                      ></div>
+                    </div>
+                    <div className="text-xs font-bold text-gray-800 bg-gray-100 px-2 py-1 rounded-md">
+                      {Math.round(((cause.data.fundsRaised || 0) / cause.data.targetAmount) * 100)}%
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <div>
+                      <span className="text-gray-500">Raised: </span>
+                      <div className="font-bold text-green-600">
+                        {symbol}{raisedPrimary.toLocaleString()}
+                        {!isUSD && (
+                          <div className="text-gray-500 font-normal">≈ ${raisedUSD.toLocaleString(undefined, {maximumFractionDigits: 2})}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-gray-500">Remaining: </span>
+                      <div className="font-bold text-orange-600">
+                        {symbol}{remainingPrimary.toLocaleString()}
+                        {!isUSD && (
+                          <div className="text-gray-500 font-normal">≈ ${remainingUSD.toLocaleString(undefined, {maximumFractionDigits: 2})}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+              
+              {/* Supported Waqf Types */}
+              {cause.data.supportedWaqfTypes && cause.data.supportedWaqfTypes.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">🏛️ Waqf Types</div>
+                  <div className="flex flex-wrap gap-2">
+                    {cause.data.supportedWaqfTypes.map((type: string) => (
+                      <span 
+                        key={type}
+                        className={`text-xs px-3 py-1.5 rounded-lg font-bold shadow-sm border ${
+                          type === 'permanent' ? 'bg-green-50 text-green-700 border-green-200' :
+                          type === 'temporary_consumable' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                          'bg-purple-50 text-purple-700 border-purple-200'
+                        }`}
+                      >
+                        {type === 'permanent' ? '💎 Permanent' :
+                         type === 'temporary_consumable' ? '⚡ Consumable' :
+                         '🔄 Revolving'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
             {/* Card Footer */}
-            <div className="p-4 bg-gray-50 flex items-center justify-between">
-              <div className="text-sm text-gray-600">
-                <span className="font-semibold">{cause.data.followers || 0}</span> followers
+            <div className="p-5 bg-white flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
+                  <span className="text-sm">👥</span>
+                </div>
+                <div>
+                  <div className="text-xs text-gray-500">Followers</div>
+                  <div className="text-sm font-bold text-gray-900">{cause.data.followers || 0}</div>
+                </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 {canManage && (
                   <button
                     onClick={() => {
                       setEditingCause(cause);
                       setShowForm(true);
                     }}
-                    className="px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 hover:border-gray-300 transition-colors text-sm"
+                    className="px-4 py-2 bg-white border-2 border-gray-200 text-gray-700 rounded-lg font-bold hover:bg-blue-50 hover:border-blue-400 hover:text-blue-700 transition-all text-sm shadow-sm hover:shadow"
                   >
                     ✏️ Edit
                   </button>
@@ -384,7 +540,7 @@ export function CauseManager({
                   <button
                     onClick={() => handleDelete(cause.key)}
                     disabled={deletingId === cause.key}
-                    className={`px-4 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg font-semibold hover:bg-red-100 transition-colors text-sm ${
+                    className={`px-4 py-2 bg-white border-2 border-red-200 text-red-600 rounded-lg font-bold hover:bg-red-50 hover:border-red-400 transition-all text-sm shadow-sm hover:shadow ${
                       deletingId === cause.key ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                   >
@@ -396,7 +552,7 @@ export function CauseManager({
                     <button
                       onClick={() => handleApprove(cause.key)}
                       disabled={approvingId === cause.key}
-                      className={`px-4 py-2 bg-green-50 border border-green-200 text-green-700 rounded-lg font-semibold hover:bg-green-100 transition-colors text-sm ${
+                      className={`px-4 py-2 bg-green-500 border-2 border-green-600 text-white rounded-lg font-bold hover:bg-green-600 transition-all text-sm shadow-md hover:shadow-lg ${
                         approvingId === cause.key ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                     >
@@ -405,7 +561,7 @@ export function CauseManager({
                     <button
                       onClick={() => handleReject(cause.key)}
                       disabled={rejectingId === cause.key}
-                      className={`px-4 py-2 bg-orange-50 border border-orange-200 text-orange-700 rounded-lg font-semibold hover:bg-orange-100 transition-colors text-sm ${
+                      className={`px-4 py-2 bg-orange-500 border-2 border-orange-600 text-white rounded-lg font-bold hover:bg-orange-600 transition-all text-sm shadow-md hover:shadow-lg ${
                         rejectingId === cause.key ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                     >

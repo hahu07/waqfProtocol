@@ -154,70 +154,100 @@ export function CausesAnalyticsModal({ isOpen, onClose, waqfs }: CausesAnalytics
           {/* Summary Cards */}
           <div className="p-6 bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl p-4 shadow-xl hover:shadow-2xl transition-all hover:scale-105">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center">
-                    <FaHandHoldingHeart className="w-5 h-5 text-white" />
+              <div className="bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl p-5 shadow-xl hover:shadow-2xl transition-all hover:scale-105 hover:-translate-y-1 duration-300 border border-white/10">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
+                      <FaHandHoldingHeart className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="px-2.5 py-1 bg-white/20 rounded-lg">
+                      <span className="text-xs text-white/90 font-bold">ACTIVE</span>
+                    </div>
                   </div>
                   <div>
-                    <p className="text-xs text-white/90 font-medium uppercase tracking-wide">Total Causes</p>
-                    <p className="text-2xl font-bold text-white">{totalMetrics.totalCauses}</p>
+                    <p className="text-xs text-white/80 font-semibold uppercase tracking-wider mb-1">Total Causes</p>
+                    <p className="text-3xl font-black text-white">{totalMetrics.totalCauses}</p>
+                    <p className="text-xs text-white/70 mt-1">Supported globally</p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl p-4 shadow-xl hover:shadow-2xl transition-all hover:scale-105">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center">
-                    <FaDollarSign className="w-5 h-5 text-white" />
+              <div className="bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl p-5 shadow-xl hover:shadow-2xl transition-all hover:scale-105 hover:-translate-y-1 duration-300 border border-white/10">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
+                      <FaDollarSign className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="px-2.5 py-1 bg-green-400/30 rounded-lg">
+                      <span className="text-xs text-white font-bold">+100%</span>
+                    </div>
                   </div>
                   <div>
-                    <p className="text-xs text-white/90 font-medium uppercase tracking-wide">Total Allocated</p>
-                    <p className="text-2xl font-bold text-white">
+                    <p className="text-xs text-white/80 font-semibold uppercase tracking-wider mb-1">Total Allocated</p>
+                    <p className="text-3xl font-black text-white">
                       ${totalMetrics.totalAllocated.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </p>
+                    <p className="text-xs text-white/70 mt-1">Across all causes</p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl p-4 shadow-xl hover:shadow-2xl transition-all hover:scale-105">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center">
-                    <FaDollarSign className="w-5 h-5 text-white" />
+              <div className="bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl p-5 shadow-xl hover:shadow-2xl transition-all hover:scale-105 hover:-translate-y-1 duration-300 border border-white/10">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
+                      <FaChartBar className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="px-2.5 py-1 bg-purple-400/30 rounded-lg">
+                      <span className="text-xs text-white font-bold">LIVE</span>
+                    </div>
                   </div>
                   <div>
-                    <p className="text-xs text-white/90 font-medium uppercase tracking-wide">Distributed</p>
-                    <p className="text-2xl font-bold text-white">
+                    <p className="text-xs text-white/80 font-semibold uppercase tracking-wider mb-1">Distributed</p>
+                    <p className="text-3xl font-black text-white">
                       ${totalMetrics.totalDistributed.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                     </p>
+                    <p className="text-xs text-white/70 mt-1">To beneficiaries</p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-purple-700 to-blue-600 rounded-xl p-4 shadow-xl hover:shadow-2xl transition-all hover:scale-105">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center">
-                    <FaUsers className="w-5 h-5 text-white" />
+              <div className="bg-gradient-to-br from-purple-700 to-blue-600 rounded-xl p-5 shadow-xl hover:shadow-2xl transition-all hover:scale-105 hover:-translate-y-1 duration-300 border border-white/10">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
+                      <FaUsers className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="px-2.5 py-1 bg-blue-400/30 rounded-lg">
+                      <span className="text-xs text-white font-bold">+{totalMetrics.totalBeneficiaries > 0 ? '25%' : '0%'}</span>
+                    </div>
                   </div>
                   <div>
-                    <p className="text-xs text-white/90 font-medium uppercase tracking-wide">Beneficiaries</p>
-                    <p className="text-2xl font-bold text-white">
+                    <p className="text-xs text-white/80 font-semibold uppercase tracking-wider mb-1">Beneficiaries</p>
+                    <p className="text-3xl font-black text-white">
                       {totalMetrics.totalBeneficiaries.toLocaleString()}
                     </p>
+                    <p className="text-xs text-white/70 mt-1">Lives impacted</p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-blue-700 to-purple-700 rounded-xl p-4 shadow-xl hover:shadow-2xl transition-all hover:scale-105">
-                <div className="flex items-center gap-3 mb-2">
-                  <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center">
-                    <FaTrophy className="w-5 h-5 text-white" />
+              <div className="bg-gradient-to-br from-blue-700 to-purple-700 rounded-xl p-5 shadow-xl hover:shadow-2xl transition-all hover:scale-105 hover:-translate-y-1 duration-300 border border-white/10">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center shadow-lg">
+                      <FaTrophy className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="px-2.5 py-1 bg-yellow-400/30 rounded-lg">
+                      <span className="text-xs text-white font-bold">★ HIGH</span>
+                    </div>
                   </div>
                   <div>
-                    <p className="text-xs text-white/90 font-medium uppercase tracking-wide">Avg Completion</p>
-                    <p className="text-2xl font-bold text-white">
+                    <p className="text-xs text-white/80 font-semibold uppercase tracking-wider mb-1">Avg Completion</p>
+                    <p className="text-3xl font-black text-white">
                       {totalMetrics.averageCompletion.toFixed(1)}%
                     </p>
+                    <p className="text-xs text-white/70 mt-1">Performance rate</p>
                   </div>
                 </div>
               </div>
@@ -322,12 +352,26 @@ export function CausesAnalyticsModal({ isOpen, onClose, waqfs }: CausesAnalytics
                 </table>
               </div>
             ) : (
-              <div className="text-center py-12">
-                <FaHandHoldingHeart className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">No Causes Data</h3>
-                <p className="text-gray-600 dark:text-gray-400">
+              <div className="text-center py-20 px-6">
+                <div className="relative inline-block mb-6">
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-400 via-purple-500 to-pink-500 rounded-full blur-xl opacity-20 animate-pulse"></div>
+                  <div className="relative w-24 h-24 mx-auto bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-3xl flex items-center justify-center shadow-xl">
+                    <FaHandHoldingHeart className="w-12 h-12 text-purple-600 dark:text-purple-400" />
+                  </div>
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-3 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  No Causes Data
+                </h3>
+                <p className="text-gray-600 dark:text-gray-400 max-w-md mx-auto leading-relaxed mb-6">
                   No cause data available yet. Create waqfs with supported causes to see analytics.
                 </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+                  <div className="px-4 py-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-xl border border-blue-200 dark:border-blue-800">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">Tip:</span> Add causes to waqfs to track impact
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
           </div>

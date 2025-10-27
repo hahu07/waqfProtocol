@@ -1,6 +1,7 @@
 // Production-grade analytics service
 import { listDocs } from '@junobuild/core';
-import type { Waqf, Cause } from '@/types/waqfs';
+import type { WaqfProfile, Cause, Doc } from '@/types/waqfs';
+import { logger } from './logger';
 
 export interface AnalyticsData {
   // Overview metrics
@@ -48,7 +49,7 @@ export interface AnalyticsData {
     type: 'donation' | 'waqf_created' | 'cause_added' | 'report_generated';
     description: string;
     timestamp: Date;
-    metadata?: any;
+    metadata?: unknown;
   }>;
 }
 
@@ -61,7 +62,7 @@ export class AnalyticsService {
   /**
    * Get comprehensive analytics data
    */
-  static async getAnalytics(dateRange?: DateRange): Promise<AnalyticsData> {
+  static async getAnalytics(_dateRange?: DateRange): Promise<AnalyticsData> {
     try {
       // Fetch all data in parallel
       const [waqfs, causes] = await Promise.all([
@@ -71,15 +72,15 @@ export class AnalyticsService {
 
       // Calculate metrics
       const totalWaqfs = waqfs.length;
-      const activeCauses = causes.filter(c => c.isActive && c.status === 'approved').length;
+      const activeCauses = causes.filter(c => c.data.isActive && c.data.status === 'approved').length;
       const totalCauses = causes.length;
       
       // Calculate donations (sum up fundsRaised from causes)
-      const totalDonations = causes.reduce((sum, cause) => sum + (cause.fundsRaised || 0), 0);
+      const totalDonations = causes.reduce((sum, cause) => sum + (cause.data.fundsRaised || 0), 0);
       
       // Calculate beneficiaries (placeholder - should come from actual data)
       const totalBeneficiaries = causes.reduce((sum, cause) => 
-        sum + (cause.followers || 0), 0);
+        sum + (cause.data.followers || 0), 0);
 
       // Calculate growth metrics (mock for now - should compare with previous period)
       const waqfsGrowth = this.calculateGrowth(totalWaqfs, totalWaqfs * 0.88);
@@ -115,7 +116,7 @@ export class AnalyticsService {
         recentActivities,
       };
     } catch (error) {
-      console.error('Error fetching analytics:', error);
+      logger.error('Error fetching analytics', { error });
       throw new Error('Failed to fetch analytics data');
     }
   }
@@ -123,14 +124,14 @@ export class AnalyticsService {
   /**
    * Fetch all waqfs
    */
-  private static async fetchWaqfs(): Promise<Waqf[]> {
+  private static async fetchWaqfs(): Promise<Doc<WaqfProfile>[]> {
     try {
-      const { items } = await listDocs<Waqf>({
+      const { items } = await listDocs<WaqfProfile>({
         collection: 'waqfs'
       });
-      return items.map(item => item.data as Waqf);
+      return items;
     } catch (error) {
-      console.error('Error fetching waqfs:', error);
+      logger.error('Error fetching waqfs', { error });
       return [];
     }
   }
@@ -138,14 +139,14 @@ export class AnalyticsService {
   /**
    * Fetch all causes
    */
-  private static async fetchCauses(): Promise<Cause[]> {
+  private static async fetchCauses(): Promise<Doc<Cause>[]> {
     try {
       const { items } = await listDocs<Cause>({
         collection: 'causes'
       });
-      return items.map(item => item.data as Cause);
+      return items;
     } catch (error) {
-      console.error('Error fetching causes:', error);
+      logger.error('Error fetching causes', { error });
       return [];
     }
   }
@@ -161,13 +162,13 @@ export class AnalyticsService {
   /**
    * Get top performing waqfs
    */
-  private static getTopWaqfs(waqfs: Waqf[], limit: number) {
+  private static getTopWaqfs(waqfs: Doc<WaqfProfile>[], limit: number) {
     return waqfs
       .map(waqf => ({
-        id: waqf.id || '',
-        name: waqf.description || `Waqf ${waqf.id}`,
-        totalRaised: 0, // TODO: Calculate from actual donations
-        causesCount: waqf.selectedCauses?.length || 0,
+        id: waqf.key,
+        name: waqf.data.name || waqf.data.description || `Waqf ${waqf.key}`,
+        totalRaised: waqf.data.financial?.totalDonations || 0,
+        causesCount: waqf.data.selectedCauses?.length || 0,
       }))
       .sort((a, b) => b.totalRaised - a.totalRaised)
       .slice(0, limit);
@@ -176,14 +177,14 @@ export class AnalyticsService {
   /**
    * Get top performing causes
    */
-  private static getTopCauses(causes: Cause[], limit: number) {
+  private static getTopCauses(causes: Doc<Cause>[], limit: number) {
     return causes
-      .filter(c => c.isActive)
+      .filter(c => c.data.isActive)
       .map(cause => ({
-        id: cause.id || cause.name,
-        name: cause.name,
-        totalRaised: cause.fundsRaised || 0,
-        followers: cause.followers || 0,
+        id: cause.key,
+        name: cause.data.name,
+        totalRaised: cause.data.fundsRaised || 0,
+        followers: cause.data.followers || 0,
       }))
       .sort((a, b) => b.totalRaised - a.totalRaised)
       .slice(0, limit);
@@ -216,12 +217,12 @@ export class AnalyticsService {
   /**
    * Get cause distribution by category
    */
-  private static getCauseDistribution(causes: Cause[]) {
+  private static getCauseDistribution(causes: Doc<Cause>[]) {
     const distribution = new Map<string, number>();
     const total = causes.length;
     
     causes.forEach(cause => {
-      const category = cause.category || 'general';
+      const category = cause.data.category || 'general';
       distribution.set(category, (distribution.get(category) || 0) + 1);
     });
     
@@ -237,29 +238,29 @@ export class AnalyticsService {
   /**
    * Get recent activities
    */
-  private static getRecentActivities(waqfs: Waqf[], causes: Cause[], limit: number) {
+  private static getRecentActivities(waqfs: Doc<WaqfProfile>[], causes: Doc<Cause>[], limit: number) {
     const activities: AnalyticsData['recentActivities'] = [];
     
     // Add waqf creation activities
     waqfs.slice(0, 3).forEach(waqf => {
       activities.push({
-        id: `waqf-${waqf.id}`,
+        id: `waqf-${waqf.key}`,
         type: 'waqf_created',
-        description: `New Waqf created: ${waqf.description || 'Untitled'}`,
-        timestamp: waqf.createdAt ? new Date(Number(waqf.createdAt) / 1000000) : new Date(),
-        metadata: { waqfId: waqf.id },
+        description: `New Waqf created: ${waqf.data.name || waqf.data.description || 'Untitled'}`,
+        timestamp: waqf.data.createdAt ? new Date(waqf.data.createdAt) : new Date(),
+        metadata: { waqfId: waqf.key },
       });
     });
     
     // Add cause activities
     causes.slice(0, 3).forEach(cause => {
-      if (cause.status === 'approved') {
+      if (cause.data.status === 'approved') {
         activities.push({
-          id: `cause-${cause.id}`,
+          id: `cause-${cause.key}`,
           type: 'cause_added',
-          description: `Cause approved: ${cause.name}`,
-          timestamp: cause.updatedAt ? new Date(Number(cause.updatedAt) / 1000000) : new Date(),
-          metadata: { causeId: cause.id },
+          description: `Cause approved: ${cause.data.name}`,
+          timestamp: cause.data.updatedAt ? new Date(cause.data.updatedAt) : new Date(),
+          metadata: { causeId: cause.key },
         });
       }
     });

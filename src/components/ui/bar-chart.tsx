@@ -10,6 +10,7 @@ import {
   Title,
   Tooltip,
   Legend,
+  TooltipItem,
 } from 'chart.js';
 
 ChartJS.register(
@@ -64,7 +65,7 @@ export function BarChart({
         enabled: true,
         position: 'nearest' as const,
         callbacks: {
-          label: (context: any) => `${context.parsed.y?.toLocaleString() ?? 0}`
+          label: (context: TooltipItem<'bar'>) => `${context.parsed.y?.toLocaleString() ?? 0}`
         }
       }
     },

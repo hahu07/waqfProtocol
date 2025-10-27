@@ -5,6 +5,7 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
+import { logger } from '@/lib/logger';
 
 export function Header() {
   const { isAuthenticated, signOut } = useAuth();
@@ -25,7 +26,7 @@ export function Header() {
       await signOut();
       router.push('/');
     } catch (error) {
-      console.error('Sign out failed:', error);
+      logger.error('Sign out failed', error instanceof Error ? error : { error });
     }
   };
 

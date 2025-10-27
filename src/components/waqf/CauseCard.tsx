@@ -1,4 +1,5 @@
 import type { Cause } from "@/types/waqfs";
+import { useState } from "react";
 
 export function CauseCard({ 
   cause, 
@@ -14,6 +15,8 @@ export function CauseCard({
     Inactive: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
     default: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
   };
+
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <div className="rounded-lg border p-3 sm:p-4 shadow-sm transition-all hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:bg-gray-700/50 min-h-[120px]">
@@ -47,9 +50,19 @@ export function CauseCard({
         </div>
       </div>
 
-      <p className="mt-2 text-xs sm:text-sm text-gray-600 dark:text-gray-300 line-clamp-3">
-        {cause.description}
-      </p>
+      <div>
+        <p className={`mt-2 text-xs sm:text-sm text-gray-600 dark:text-gray-300 ${expanded ? '' : 'line-clamp-3'}`}>
+          {cause.description}
+        </p>
+        {cause.description && cause.description.length > 150 && (
+          <button
+            onClick={() => setExpanded(prev => !prev)}
+            className="text-blue-600 hover:text-blue-800 text-xs font-semibold mt-1 transition-colors"
+          >
+            {expanded ? '▲ Show less' : '▼ Read more'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

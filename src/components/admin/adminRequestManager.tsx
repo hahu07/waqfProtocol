@@ -13,6 +13,7 @@ import {
   canCreateAdminRequests,
   canApproveAdminRequests
 } from '@/lib/admin-utils';
+import { logger } from '@/lib/logger';
 
 interface AdminRequestFormData {
   targetUserId: string;
@@ -51,7 +52,7 @@ export function AdminRequestManager() {
       allRequests.sort((a, b) => b.data.requestedAt - a.data.requestedAt);
       setRequests(allRequests);
     } catch (error) {
-      console.error('Error loading admin requests:', error);
+      logger.error('Error loading admin requests', error instanceof Error ? error : { error });
       setError('Failed to load admin requests. Please try again.');
     } finally {
       setLoading(false);
@@ -78,7 +79,50 @@ export function AdminRequestManager() {
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!user?.key) return;
+    if (!user?.key) {
+      setError('You must be logged in to create an admin request');
+      return;
+    }
+
+    // Client-side validation
+    setError(null);
+    
+    if (!formData.targetUserId.trim()) {
+      setError('User ID is required');
+      return;
+    }
+
+    if (!formData.targetUserEmail.trim()) {
+      setError('Email address is required');
+      return;
+    }
+
+    if (!formData.targetUserEmail.includes('@') || formData.targetUserEmail.length < 5) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
+    if (!formData.reason.trim()) {
+      setError('Justification is required');
+      return;
+    }
+
+    if (formData.reason.trim().length < 2) {
+      setError('Justification must be at least 2 characters');
+      return;
+    }
+
+    // Role-specific validation for Platform Admin
+    if (formData.type === 'add' && formData.targetRole === 'platform_admin') {
+      if (formData.reason.trim().length < 15) {
+        setError('Platform Admin additions require detailed justification (minimum 15 characters)');
+        return;
+      }
+      if (formData.reason.trim().length > 100) {
+        setError('Platform Admin justification must be 100 characters or less');
+        return;
+      }
+    }
 
     try {
       setProcessingId('creating');
@@ -92,6 +136,7 @@ export function AdminRequestManager() {
         formData.type === 'add' ? formData.targetRole : undefined
       );
       
+      // Success - reload requests and close form
       await loadRequests();
       setShowForm(false);
       setFormData({
@@ -102,9 +147,41 @@ export function AdminRequestManager() {
         reason: '',
         type: 'add'
       });
+      
+      // Show success message
+      setError(null);
     } catch (error) {
-      console.error('Error creating admin request:', error);
-      setError(error instanceof Error ? error.message : 'Failed to create request');
+      logger.error('Error creating admin request', error instanceof Error ? error : { error });
+      
+      // Parse and display user-friendly error messages
+      let errorMessage = 'Failed to create admin request';
+      
+      if (error instanceof Error) {
+        const msg = error.message;
+        
+        // Extract specific validation errors from backend
+        if (msg.includes('Justification must be at least')) {
+          errorMessage = 'Please provide a longer justification for this request';
+        } else if (msg.includes('Invalid target admin email')) {
+          errorMessage = 'Please enter a valid email address';
+        } else if (msg.includes('Target admin email is required')) {
+          errorMessage = 'Email address is required';
+        } else if (msg.includes('Platform Admin additions require')) {
+          errorMessage = 'Platform Admin additions require detailed justification (15-100 characters)';
+        } else if (msg.includes('Platform Admin removals require')) {
+          errorMessage = 'Platform Admin removals require extensive justification (15-100 characters)';
+        } else if (msg.includes('Permission denied')) {
+          errorMessage = 'You do not have permission to create admin requests. Contact a Compliance Officer.';
+        } else if (msg.includes('Pending admin request already exists')) {
+          errorMessage = 'A pending admin request already exists for this user';
+        } else if (msg.includes('Too many admin requests')) {
+          errorMessage = 'You have created too many requests recently. Please wait before creating more.';
+        } else {
+          errorMessage = msg;
+        }
+      }
+      
+      setError(errorMessage);
     } finally {
       setProcessingId(null);
     }
@@ -120,7 +197,7 @@ export function AdminRequestManager() {
       // Invalidate the admin list cache to refresh the admin count and list
       queryClient.invalidateQueries({ queryKey: ['admins'] });
     } catch (error) {
-      console.error('Error approving request:', error);
+      logger.error('Error approving request', error instanceof Error ? error : { error });
       setError(error instanceof Error ? error.message : 'Failed to approve request');
     } finally {
       setProcessingId(null);
@@ -137,7 +214,7 @@ export function AdminRequestManager() {
       // Invalidate admin cache (mainly for consistency, rejection doesn't change admin list)
       queryClient.invalidateQueries({ queryKey: ['admins'] });
     } catch (error) {
-      console.error('Error rejecting request:', error);
+      logger.error('Error rejecting request', error instanceof Error ? error : { error });
       setError(error instanceof Error ? error.message : 'Failed to reject request');
     } finally {
       setProcessingId(null);
@@ -349,12 +426,29 @@ export function AdminRequestManager() {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-bold text-gray-900">Create Admin Request</h2>
                 <button
-                  onClick={() => setShowForm(false)}
+                  onClick={() => {
+                    setShowForm(false);
+                    setError(null);
+                  }}
                   className="text-gray-500 hover:text-gray-700"
                 >
                   ✕
                 </button>
               </div>
+
+              {/* Error display in modal */}
+              {error && (
+                <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-start gap-2">
+                  <span className="text-red-600">⚠️</span>
+                  <p className="text-sm text-red-700 flex-1">{error}</p>
+                  <button
+                    onClick={() => setError(null)}
+                    className="text-red-400 hover:text-red-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
 
               <form onSubmit={handleCreateRequest} className="space-y-4">
                 <div>
@@ -421,15 +515,38 @@ export function AdminRequestManager() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Reason
+                    {formData.type === 'add' && formData.targetRole === 'platform_admin' && (
+                      <span className="text-xs text-gray-500 ml-1">(15-100 characters for Platform Admin)</span>
+                    )}
+                  </label>
                   <textarea
                     value={formData.reason}
                     onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="Justification for this admin request..."
+                    placeholder="Justification for this admin request (minimum 2 characters)..."
                     rows={3}
+                    minLength={2}
+                    maxLength={2000}
                     required
                   />
+                  <div className="flex justify-between items-center mt-1">
+                    <p className="text-xs text-gray-500">
+                      {formData.reason.length < 2 ? (
+                        <span className="text-red-600">Minimum 2 characters required</span>
+                      ) : formData.type === 'add' && formData.targetRole === 'platform_admin' && formData.reason.length < 15 ? (
+                        <span className="text-orange-600">Platform Admin requires 15+ characters</span>
+                      ) : formData.type === 'add' && formData.targetRole === 'platform_admin' && formData.reason.length > 100 ? (
+                        <span className="text-red-600">Platform Admin max 100 characters</span>
+                      ) : (
+                        <span className="text-green-600">✓ Valid</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {formData.reason.length}/2000 characters
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex gap-3 pt-4">

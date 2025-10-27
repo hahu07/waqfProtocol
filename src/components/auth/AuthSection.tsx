@@ -121,7 +121,7 @@ export const AuthSection = () => {
               minHeight: '44px',
               padding: '12px 16px'
             }}
-            variant={null as any}
+            variant={null}
             loading={isSigningInWithII}
           >
             {isSigningInWithII ? (

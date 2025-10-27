@@ -2,9 +2,12 @@
 
 import { Dialog, DialogTitle } from '@headlessui/react';
 import { HiX, HiSearch, HiFilter, HiCheckCircle } from 'react-icons/hi';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import type { Cause } from '@/types/waqfs';
+import type { Cause, Category, Subcategory } from '@/types/waqfs';
+import { WaqfType } from '@/types/waqfs';
+import { logger } from '@/lib/logger';
+import { getCategories, getAllSubcategories } from '@/lib/categories';
 
 type CausesModalProps = {
   isOpen: boolean;
@@ -14,6 +17,7 @@ type CausesModalProps = {
   selected: string[];
   onClose: () => void;
   onCauseSelect: (causeIds: string[]) => void;
+  selectedWaqfType?: 'permanent' | 'temporary_consumable' | 'temporary_revolving' | 'hybrid' | null;
 };
 
 export function CausesModal({
@@ -23,26 +27,93 @@ export function CausesModal({
   error,
   selected,
   onClose,
-  onCauseSelect
+  onCauseSelect,
+  selectedWaqfType = null
 }: CausesModalProps) {
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [selectedMainCategory, setSelectedMainCategory] = useState('all');
+  const [selectedSubcategory, setSelectedSubcategory] = useState('all');
+  const [waqfTypeFilter, setWaqfTypeFilter] = useState<'all' | 'permanent' | 'temporary_consumable' | 'temporary_revolving'>('all');
   
-  console.log('🗨️ CausesModal rendering:', { isOpen, causesCount: causes.length, isLoading, error, causes });
+  // Dynamic categories state
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [subcategories, setSubcategories] = useState<Subcategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(false);
   
-  const categories = useMemo(() => {
-    const uniqueCategories = [...new Set(causes.map(cause => cause.category))];
-    return ['all', ...uniqueCategories];
-  }, [causes]);
+  // Auto-set waqf type filter based on user's selection in the form
+  useEffect(() => {
+    if (selectedWaqfType && selectedWaqfType !== 'hybrid') {
+      setWaqfTypeFilter(selectedWaqfType);
+    }
+  }, [selectedWaqfType]);
+  
+  // Load categories on mount
+  useEffect(() => {
+    const loadCategoriesData = async () => {
+      try {
+        setLoadingCategories(true);
+        const [cats, subs] = await Promise.all([
+          getCategories(),
+          getAllSubcategories()
+        ]);
+        setCategories(cats);
+        setSubcategories(subs);
+      } catch (error) {
+        logger.error('Error loading categories', error);
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+    loadCategoriesData();
+  }, []);
+  
+  logger.debug('💬 CausesModal rendering:', { isOpen, causesCount: causes.length, isLoading, error, causes, selectedWaqfType });
+  
+  // Get subcategories filtered by selected main category
+  const filteredSubcategories = useMemo(() => {
+    if (selectedMainCategory === 'all') {
+      return subcategories;
+    }
+    return subcategories.filter(sub => sub.categoryId === selectedMainCategory);
+  }, [subcategories, selectedMainCategory]);
   
   const filteredCauses = useMemo(() => {
-    return causes.filter(cause => {
+    console.log('🔍 FILTER STATE:', {
+      causesCount: causes.length,
+      selectedMainCategory,
+      selectedSubcategory,
+      waqfTypeFilter
+    });
+    
+    if (causes.length > 0) {
+      console.log('📋 FIRST CAUSE:', causes[0]);
+    }
+    
+    const filtered = causes.filter(cause => {
       const matchesSearch = cause.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                            cause.description.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCategory = selectedCategory === 'all' || cause.category === selectedCategory;
-      return matchesSearch && matchesCategory;
+      const matchesMainCategory = selectedMainCategory === 'all' || cause.categoryId === selectedMainCategory;
+      const matchesSubcategory = selectedSubcategory === 'all' || cause.subcategoryId === selectedSubcategory;
+      const matchesWaqfType = waqfTypeFilter === 'all' || 
+                             (cause.supportedWaqfTypes && cause.supportedWaqfTypes.includes(waqfTypeFilter as WaqfType));
+      
+      const passed = matchesSearch && matchesMainCategory && matchesSubcategory && matchesWaqfType;
+      
+      if (!passed && selectedMainCategory !== 'all') {
+        console.log(`❌ ${cause.name} filtered out:`, {
+          categoryId: cause.categoryId,
+          selectedMainCategory,
+          matchesMainCategory,
+          matchesWaqfType
+        });
+      }
+      
+      return passed;
     });
-  }, [causes, searchTerm, selectedCategory]);
+    
+    console.log('✅ FILTERED COUNT:', filtered.length);
+    return filtered;
+  }, [causes, searchTerm, selectedMainCategory, selectedSubcategory, waqfTypeFilter]);
   
   // Function to handle confirmed selection and close modal
   const handleConfirm = () => {
@@ -99,6 +170,67 @@ export function CausesModal({
 
           {/* Search and Filter Section */}
           <div className="p-6 border-b border-gray-200 dark:border-gray-700 space-y-4">
+            {/* Waqf Type Filter Tabs */}
+            <div className="flex gap-2 overflow-x-auto pb-2">
+              <button
+                onClick={() => setWaqfTypeFilter('all')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-all ${
+                  waqfTypeFilter === 'all'
+                    ? 'bg-gradient-to-r from-blue-500 to-purple-500 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                }`}
+              >
+                <span>🌐</span>
+                <span>All Types</span>
+              </button>
+              <button
+                onClick={() => setWaqfTypeFilter('permanent')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-all ${
+                  waqfTypeFilter === 'permanent'
+                    ? 'bg-green-500 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900/20'
+                }`}
+              >
+                <span>🏛️</span>
+                <span>Permanent</span>
+              </button>
+              <button
+                onClick={() => setWaqfTypeFilter('temporary_consumable')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-all ${
+                  waqfTypeFilter === 'temporary_consumable'
+                    ? 'bg-blue-500 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-100 dark:hover:bg-blue-900/20'
+                }`}
+              >
+                <span>⚡</span>
+                <span>Consumable</span>
+              </button>
+              <button
+                onClick={() => setWaqfTypeFilter('temporary_revolving')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium text-sm whitespace-nowrap transition-all ${
+                  waqfTypeFilter === 'temporary_revolving'
+                    ? 'bg-purple-500 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-purple-100 dark:hover:bg-purple-900/20'
+                }`}
+              >
+                <span>🔄</span>
+                <span>Revolving</span>
+              </button>
+            </div>
+            
+            {/* Helper text based on selected waqf type */}
+            {waqfTypeFilter !== 'all' && (
+              <div className="text-xs text-gray-600 dark:text-gray-400 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-lg flex items-start gap-2">
+                <span>💡</span>
+                <span>
+                  Showing causes that support <strong className="text-blue-600 dark:text-blue-400">
+                    {waqfTypeFilter === 'permanent' ? 'Permanent' : 
+                     waqfTypeFilter === 'temporary_consumable' ? 'Consumable' : 'Revolving'}
+                  </strong> waqf type
+                </span>
+              </div>
+            )}
+            
             {/* Search Bar */}
             <div className="relative">
               <HiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -111,20 +243,63 @@ export function CausesModal({
               />
             </div>
             
-            {/* Category Filter */}
-            <div className="flex items-center space-x-2">
-              <HiFilter className="text-gray-400 w-5 h-5" />
-              <select
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-              >
-                {categories.map(category => (
-                  <option key={category} value={category}>
-                    {category === 'all' ? 'All Categories' : category.charAt(0).toUpperCase() + category.slice(1)}
-                  </option>
-                ))}
-              </select>
+            {/* Category Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {/* Main Category Filter */}
+              <div className="flex items-center space-x-2">
+                <HiFilter className="text-gray-400 w-5 h-5 flex-shrink-0" />
+                {loadingCategories ? (
+                  <div className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 text-sm">
+                    Loading...
+                  </div>
+                ) : (
+                  <select
+                    value={selectedMainCategory}
+                    onChange={(e) => {
+                      setSelectedMainCategory(e.target.value);
+                      setSelectedSubcategory('all'); // Reset subcategory when main category changes
+                    }}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  >
+                    <option value="all">All Main Categories</option>
+                    {categories.map(category => (
+                      <option key={category.id} value={category.id}>
+                        {category.icon} {category.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Subcategory Filter */}
+              <div className="flex items-center space-x-2">
+                <HiFilter className="text-gray-400 w-5 h-5 flex-shrink-0" />
+                {loadingCategories ? (
+                  <div className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-800 text-gray-500 text-sm">
+                    Loading...
+                  </div>
+                ) : selectedMainCategory !== 'all' && filteredSubcategories.length === 0 ? (
+                  <div className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 text-sm">
+                    No subcategories
+                  </div>
+                ) : (
+                  <select
+                    value={selectedSubcategory}
+                    onChange={(e) => setSelectedSubcategory(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                    disabled={selectedMainCategory === 'all' && filteredSubcategories.length === 0}
+                  >
+                    <option value="all">
+                      {selectedMainCategory === 'all' ? 'All Subcategories' : 'All in this category'}
+                    </option>
+                    {filteredSubcategories.map(subcategory => (
+                      <option key={subcategory.id} value={subcategory.id}>
+                        {subcategory.icon} {subcategory.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
 
             {/* Selection Summary */}
@@ -174,7 +349,7 @@ export function CausesModal({
                     </div>
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No causes found</h3>
                     <p className="text-gray-500 dark:text-gray-400">
-                      {searchTerm || selectedCategory !== 'all' 
+                      {searchTerm || selectedMainCategory !== 'all' || selectedSubcategory !== 'all' || waqfTypeFilter !== 'all'
                         ? 'Try adjusting your search or filter criteria.'
                         : 'No causes are available at the moment.'}
                     </p>
@@ -224,9 +399,11 @@ export function CausesModal({
                                   {cause.name} {cause.icon && <span className="ml-2">{cause.icon}</span>}
                                 </h4>
                                 <div className="flex items-center space-x-2">
-                                  <span className="text-xs font-medium px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full">
-                                    {cause.category}
-                                  </span>
+                                  {cause.subcategoryId && subcategories.find(s => s.id === cause.subcategoryId) && (
+                                    <span className="text-xs font-medium px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full">
+                                      {subcategories.find(s => s.id === cause.subcategoryId)?.icon} {subcategories.find(s => s.id === cause.subcategoryId)?.name}
+                                    </span>
+                                  )}
                                   <span className={`text-xs font-medium px-2 py-1 rounded-full ${
                                     cause.isActive 
                                       ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' 
@@ -244,6 +421,30 @@ export function CausesModal({
                                     : cause.description
                                   }
                                 </p>
+                              )}
+                              
+                              {/* Waqf Type Compatibility Badges */}
+                              {cause.supportedWaqfTypes && cause.supportedWaqfTypes.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mb-3">
+                                  {cause.supportedWaqfTypes.includes(WaqfType.PERMANENT) && (
+                                    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded-full">
+                                      <span>🏛️</span>
+                                      <span>Permanent</span>
+                                    </span>
+                                  )}
+                                  {cause.supportedWaqfTypes.includes(WaqfType.TEMPORARY_CONSUMABLE) && (
+                                    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full">
+                                      <span>⚡</span>
+                                      <span>Consumable</span>
+                                    </span>
+                                  )}
+                                  {cause.supportedWaqfTypes.includes(WaqfType.TEMPORARY_REVOLVING) && (
+                                    <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded-full">
+                                      <span>🔄</span>
+                                      <span>Revolving</span>
+                                    </span>
+                                  )}
+                                </div>
                               )}
                               
                               {/* Stats */}

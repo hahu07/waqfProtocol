@@ -8,6 +8,7 @@ import {
   Title,
   Tooltip,
   Legend,
+  TooltipItem,
 } from 'chart.js';
 
 ChartJS.register(
@@ -47,8 +48,8 @@ export function BarChart({ data, height = 300, colors = ['#3b82f6'] }: BarChartP
       tooltip: {
         position: 'nearest' as const,
         callbacks: {
-          label: (context: any) => {
-            return `$${context.raw.toLocaleString()}`;
+          label: (context: TooltipItem<'bar'>) => {
+            return `$${(context.raw as number).toLocaleString()}`;
           }
         }
       }
@@ -57,7 +58,10 @@ export function BarChart({ data, height = 300, colors = ['#3b82f6'] }: BarChartP
       y: {
         beginAtZero: true,
         ticks: {
-          callback: (value: any) => `$${value >= 1000 ? `${(value/1000).toFixed(0)}k` : value}`
+          callback: (value: number | string) => {
+            const numValue = typeof value === 'number' ? value : parseFloat(value);
+            return `$${numValue >= 1000 ? `${(numValue/1000).toFixed(0)}k` : numValue}`;
+          }
         }
       },
       x: {

@@ -1,5 +1,6 @@
 import { getDoc, setDoc } from '@junobuild/core';
 import { ADMIN_COLLECTION } from './admin-utils';
+import { logger } from './logger';
 
 const ACTIVITY_COLLECTION = 'platform_activities';
 
@@ -91,7 +92,7 @@ export const checkAdminHealth = async (): Promise<HealthStatus> => {
       component => Object.values(component).every(Boolean)
     );
   } catch (error) {
-    console.error('Health check failed:', error);
+    logger.error('Health check failed', { error });
   }
 
   return status;
@@ -117,7 +118,7 @@ export const startHealthMonitor = (intervalMs = 30000) => {
     const status = await checkAdminHealth();
     if (!status.ok) {
       // Add your alerting logic here (Sentry, email, etc.)
-      console.error('CRITICAL: Admin health check failed', status);
+      logger.error('CRITICAL: Admin health check failed', { status });
     }
   };
 

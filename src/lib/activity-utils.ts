@@ -1,8 +1,6 @@
 // src/lib/activity-utils.ts
 import { listDocs, setDoc, type Doc } from '@junobuild/core';
-
-// Import ListOrderField type from another file since it's project-specific
-type ListOrderField = 'created_at' | 'updated_at';
+import { logger } from './logger';
 
 export type ActivityType = 
   | 'waqf_created'
@@ -39,11 +37,11 @@ export interface ActivityData {
     targetName?: string;
     amount?: number;
     status?: string;
-    [key: string]: any;
+    [key: string]: unknown;
   };
 }
 
-export interface ActivityDoc extends Doc<ActivityData> {}
+export type ActivityDoc = Doc<ActivityData>;
 
 const ACTIVITY_COLLECTION = 'platform_activities';
 
@@ -136,7 +134,7 @@ const ACTIVITY_CONFIGS: Record<ActivityType, {
   user_registered: {
     icon: '🎉',
     color: 'bg-gradient-to-r from-pink-500 to-rose-500',
-    getDescription: (data) => `registered as a new user`
+    getDescription: () => `registered as a new user`
   },
   report_generated: {
     icon: '📄',
@@ -199,7 +197,7 @@ export const logActivity = async (
       }
     });
   } catch (error) {
-    console.error('Failed to log activity:', error);
+    logger.error('Failed to log activity', { error, type, userId });
     // Don't throw error to avoid breaking the main operation
   }
 };
@@ -221,7 +219,7 @@ export const getRecentActivities = async (limit: number = 10): Promise<ActivityD
     
     return items.slice(0, limit);
   } catch (error) {
-    console.error('Failed to fetch activities:', error);
+    logger.error('Failed to fetch activities', { error, limit });
     return [];
   }
 };
@@ -245,7 +243,7 @@ export const getUserActivities = async (userId: string, limit: number = 10): Pro
       .filter(item => item.data.userId === userId)
       .slice(0, limit);
   } catch (error) {
-    console.error('Failed to fetch user activities:', error);
+    logger.error('Failed to fetch user activities', { error, userId, limit });
     return [];
   }
 };
@@ -290,8 +288,8 @@ export const cleanupOldActivities = async (daysToKeep: number = 30): Promise<voi
     
     // Note: You would need to implement deleteDoc for each old activity
     // This is a placeholder for the cleanup logic
-    console.log(`Found ${oldActivities.length} old activities to clean up`);
+    logger.info('Found old activities to clean up', { count: oldActivities.length, daysToKeep });
   } catch (error) {
-    console.error('Failed to cleanup old activities:', error);
+    logger.error('Failed to cleanup old activities', { error, daysToKeep });
   }
 };

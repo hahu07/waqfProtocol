@@ -11,6 +11,7 @@ import { useFetchWaqfData } from '@/hooks/useWaqfData';
 import { AnalyticsService, type AnalyticsData } from '@/lib/analytics-service';
 import { FaChartLine, FaHandHoldingHeart, FaDollarSign, FaUsers, FaFileAlt, FaDownload, FaArrowUp, FaArrowDown, FaCalendarAlt, FaCheckCircle, FaClock, FaArrowRight, FaSync, FaPrint, FaFileExport } from 'react-icons/fa';
 import toast from 'react-hot-toast';
+import { logger } from '@/lib/logger';
 
 interface WaqfReport {
   id: string;
@@ -51,7 +52,7 @@ export function ReportManager({
         setAnalyticsData(data);
         setLastUpdated(new Date());
       } catch (error) {
-        console.error('Error fetching analytics:', error);
+        logger.error('Error fetching analytics', error instanceof Error ? error : { error });
       }
     };
 
@@ -66,7 +67,7 @@ export function ReportManager({
       setAnalyticsData(data);
       setLastUpdated(new Date());
     } catch (error) {
-      console.error('Error refreshing analytics:', error);
+      logger.error('Error refreshing analytics', error instanceof Error ? error : { error });
     } finally {
       setIsRefreshing(false);
     }
@@ -92,7 +93,7 @@ export function ReportManager({
   };
 
   const handleViewReport = (type: 'financial' | 'impact' | 'contributions') => {
-    console.log('Opening report:', type);
+    logger.debug('Opening report:', { data: type });
     toast.loading('Loading report...');
     
     setReportType(type);
@@ -104,7 +105,7 @@ export function ReportManager({
       toast.success(`Opening ${type} report`);
     } else {
       // Create a mock waqf object for demo
-      const mockWaqfData: any = {
+      const mockWaqfData = {
         id: 'system-report',
         name: 'System Analytics',
         description: 'System-wide Analytics',
@@ -146,8 +147,8 @@ export function ReportManager({
       };
       setSelectedWaqf({
         key: 'system-report',
-        data: mockWaqfData,
-      });
+        data: mockWaqfData as unknown,
+      } as Waqf);
       toast.dismiss();
       toast.success(`Opening ${type} report`);
     }

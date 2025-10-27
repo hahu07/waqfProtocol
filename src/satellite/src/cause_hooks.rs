@@ -6,6 +6,8 @@ use junobuild_utils::decode_doc_data;
 // No enums needed - validation is done via string matching
 
 // Cause structure matching frontend interface
+// By default, serde ignores unknown fields, so frontend can send additional fields
+// (e.g., supportedWaqfTypes, investmentStrategy, consumableOptions, revolvingOptions)
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Cause {
     pub id: String,
@@ -14,7 +16,11 @@ pub struct Cause {
     pub icon: String,                    // Frontend has icon field
     #[serde(rename = "coverImage")]
     pub cover_image: Option<String>,     // Frontend optional coverImage
-    pub category: String,
+    #[serde(rename = "categoryId")]
+    pub category_id: String,             // Main category ID (required)
+    #[serde(rename = "subcategoryId")]
+    pub subcategory_id: String,          // Subcategory ID (required)
+    pub category: Option<String>,        // Legacy field for backward compatibility
     #[serde(rename = "isActive")]
     pub is_active: bool,
     pub status: String,                  // Frontend uses string: "pending" | "approved" | "rejected"
@@ -23,12 +29,20 @@ pub struct Cause {
     pub followers: i32,                  // Frontend tracks followers
     #[serde(rename = "fundsRaised")]
     pub funds_raised: f64,               // Frontend tracks fundsRaised
+    #[serde(rename = "targetAmount")]
+    pub target_amount: Option<f64>,      // Frontend optional target/goal amount
+    #[serde(rename = "primaryCurrency")]
+    pub primary_currency: Option<String>, // Frontend primary currency (NGN, USD, etc.)
+    #[serde(rename = "exchangeRateToUSD")]
+    pub exchange_rate_to_usd: Option<f64>, // Frontend exchange rate to USD
     #[serde(rename = "impactScore")]
     pub impact_score: Option<f64>,       // Frontend optional impactScore (0-100)
     #[serde(rename = "createdAt")]
     pub created_at: String,              // Frontend uses ISO string timestamps
     #[serde(rename = "updatedAt")]
     pub updated_at: String,              // Frontend uses ISO string timestamps
+    // Note: Frontend sends additional fields (supportedWaqfTypes, investmentStrategy, etc.)
+    // which are allowed but not validated by this satellite
 }
 
 // Cause validation function
@@ -54,8 +68,14 @@ fn validate_cause_data(cause: &Cause) -> std::result::Result<(), String> {
         return Err("Cause description must be 5000 characters or less".into());
     }
     
-    if cause.category.trim().is_empty() {
-        return Err("Cause category is required".into());
+    // Category ID validation
+    if cause.category_id.trim().is_empty() {
+        return Err("Category ID is required".into());
+    }
+    
+    // Subcategory ID validation
+    if cause.subcategory_id.trim().is_empty() {
+        return Err("Subcategory ID is required".into());
     }
     
     // 2. Icon field validation
@@ -66,6 +86,12 @@ fn validate_cause_data(cause: &Cause) -> std::result::Result<(), String> {
     // 3. Financial validation
     if cause.funds_raised < 0.0 {
         return Err("Funds raised cannot be negative".into());
+    }
+    
+    if let Some(target) = cause.target_amount {
+        if target <= 0.0 {
+            return Err("Target amount must be positive".into());
+        }
     }
     
     if let Some(score) = cause.impact_score {
@@ -167,7 +193,7 @@ fn validate_cause_business_rules(cause: &Cause, context: &AssertSetDocContext) -
     validate_cause_rate_limits(context)?;
     
     // 3. Category validation
-    validate_cause_category(&cause.category)?;
+    validate_cause_category_ids(&cause.category_id, &cause.subcategory_id)?;
     
     Ok(())
 }
@@ -213,29 +239,27 @@ fn validate_cause_rate_limits(_context: &AssertSetDocContext) -> std::result::Re
     Ok(())
 }
 
-// Validate cause category
-fn validate_cause_category(category: &str) -> std::result::Result<(), String> {
-    let valid_categories = [
-        "education",
-        "healthcare", 
-        "poverty_alleviation",
-        "disaster_relief",
-        "environmental",
-        "community_development",
-        "orphan_care",
-        "elder_care",
-        "humanitarian_aid",
-        "religious_services",
-        "other"
-    ];
+// Validate cause category IDs
+fn validate_cause_category_ids(category_id: &str, subcategory_id: &str) -> std::result::Result<(), String> {
+    // Validate main category ID
+    let valid_main_categories = ["permanent", "temporary_time_bound", "temporary_revolving"];
     
-    if !valid_categories.contains(&category.to_lowercase().as_str()) {
+    if !valid_main_categories.contains(&category_id) {
         return Err(format!(
-            "Invalid category '{}'. Valid categories: {}", 
-            category,
-            valid_categories.join(", ")
+            "Invalid main category '{}'. Valid categories: {}",
+            category_id,
+            valid_main_categories.join(", ")
         ));
     }
+    
+    // Validate subcategory format (should end with category_id or be appropriately named)
+    if subcategory_id.is_empty() {
+        return Err("Subcategory ID cannot be empty".into());
+    }
+    
+    // Basic format check: subcategory should contain category reference
+    // This is a soft validation - in production, you'd query the subcategories collection
+    // to ensure the subcategory exists and belongs to the specified category
     
     Ok(())
 }
@@ -256,8 +280,14 @@ pub fn assert_cause_operations(context: AssertSetDocContext) -> std::result::Res
     validate_cause_business_rules(&cause, &context)?;
     
     // Log the validation attempt
-    ic_cdk::println!("Cause validation passed: {} - Status: {}, Active: {}", 
-                    cause.name, cause.status, cause.is_active);
+    ic_cdk::println!(
+        "Cause validation passed: {} - Status: {}, Active: {}, Category: {}, Subcategory: {}",
+        cause.name,
+        cause.status,
+        cause.is_active,
+        cause.category_id,
+        cause.subcategory_id
+    );
     
     Ok(())
 }
@@ -299,12 +329,14 @@ pub fn handle_cause_changes(context: OnSetDocContext) -> std::result::Result<(),
     
     // Enhanced logging for audit purposes
     ic_cdk::println!(
-        "Cause {}: {} - Name: '{}', Status: {}, Active: {}, Raised: ${}", 
+        "Cause {}: {} - Name: '{}', Status: {}, Active: {}, Category: {}/{}, Raised: ${}",
         operation_type,
         context.data.key,
         cause_data.name,
         cause_data.status,
         cause_data.is_active,
+        cause_data.category_id,
+        cause_data.subcategory_id,
         cause_data.funds_raised
     );
     
