@@ -9,80 +9,168 @@ import type { Cause } from '@/types/waqfs';
 import { WaqfType } from '@/types/waqfs';
 
 export const testCauses: Omit<Cause, 'id' | 'createdAt' | 'updatedAt'>[] = [
-  // PERMANENT WAQF CAUSE
+  // EDUCATION CAUSE - Supports multiple waqf types
   {
-    name: 'Permanent Education Endowment',
-    description: 'A perpetual scholarship fund where the principal is preserved forever. Investment returns fund annual scholarships for underprivileged students. This is traditional waqf - your donation becomes a lasting legacy.',
+    name: 'Education Support Fund',
+    description: 'Support education through scholarships and school infrastructure. You can choose how to structure your donation: as a permanent endowment for perpetual scholarships, as consumable funds for immediate student aid, or as revolving microloans for student entrepreneurs.',
     icon: '🎓',
     coverImage: undefined,
-    categoryId: 'permanent',
-    subcategoryId: 'education_permanent',
-    isActive: false,
-    status: 'pending',
+    categoryId: 'education',
+    subcategoryId: 'education_general',
+    isActive: true,
+    status: 'approved',
     sortOrder: 1,
     followers: 0,
-    fundsRaised: 0,
-    targetAmount: 50000,
-    primaryCurrency: 'USD',
+    fundsRaised: 20625000, // ₦12,500 USD × 1650 = ₦20,625,000
+    targetAmount: 82500000, // $50,000 USD × 1650 = ₦82,500,000
+    primaryCurrency: 'NGN',
+    exchangeRateToUSD: 1650,
     impactScore: 95,
-    supportedWaqfTypes: [WaqfType.PERMANENT],
+    supportedWaqfTypes: [WaqfType.PERMANENT, WaqfType.TEMPORARY_CONSUMABLE, WaqfType.TEMPORARY_REVOLVING],
     investmentStrategy: {
       assetAllocation: '60% Islamic Bonds (Sukuk), 30% Ethical Equity, 10% Cash',
       expectedAnnualReturn: 6.5,
       distributionFrequency: 'annually'
     }
   },
-  
-  // TEMPORARY CONSUMABLE WAQF CAUSE
+
+  // HUMANITARIAN AID - Supports permanent and consumable
   {
-    name: 'Ramadan Feeding Program',
-    description: 'Annual Ramadan iftar and suhoor meals for 500 fasting families in need. Your entire donation will be fully spent during the blessed month to provide nutritious meals, dates, and food packages. The full amount goes directly to feeding the hungry during Ramadan.',
+    name: 'Humanitarian Relief Fund',
+    description: 'Support families in crisis through emergency aid and sustainable programs. Donate as permanent waqf to create an ongoing relief fund, or as consumable waqf for immediate emergency response. Your choice determines the impact timeline.',
     icon: '🌙',
     coverImage: undefined,
-    categoryId: 'temporary_time_bound',
-    subcategoryId: 'seasonal_programs',
-    isActive: false,
-    status: 'pending',
+    categoryId: 'humanitarian',
+    subcategoryId: 'relief_programs',
+    isActive: true,
+    status: 'approved',
     sortOrder: 2,
     followers: 0,
-    fundsRaised: 0,
-    targetAmount: 15000,
-    primaryCurrency: 'USD',
+    fundsRaised: 13530000, // $8,200 × 1650 = ₦13,530,000
+    targetAmount: 24750000, // $15,000 × 1650 = ₦24,750,000
+    primaryCurrency: 'NGN',
+    exchangeRateToUSD: 1650,
     impactScore: 92,
-    supportedWaqfTypes: [WaqfType.TEMPORARY_CONSUMABLE],
+    supportedWaqfTypes: [WaqfType.PERMANENT, WaqfType.TEMPORARY_CONSUMABLE],
     consumableOptions: {
       minDurationMonths: 1,
-      maxDurationMonths: 2,
+      maxDurationMonths: 24,
       defaultSpendingSchedule: 'immediate'
+    },
+    investmentStrategy: {
+      assetAllocation: '50% Sukuk, 30% Equity, 20% Cash',
+      expectedAnnualReturn: 5.5,
+      distributionFrequency: 'quarterly'
     }
   },
-  
-  // TEMPORARY REVOLVING WAQF CAUSE
+
+  // HEALTHCARE - Supports all three types
   {
-    name: 'Healthcare Facility Expansion',
-    description: 'A 5-year investment in expanding a community clinic. Your principal is locked for 5 years while investment returns fund medical equipment. At maturity, your principal is returned to you while the returns create lasting impact.',
+    name: 'Healthcare Access Initiative',
+    description: 'Expand healthcare access through clinics, medical equipment, and patient support. Choose permanent waqf for sustainable healthcare infrastructure, consumable for immediate medical aid, or revolving for healthcare microloans and equipment financing.',
     icon: '🏥',
     coverImage: undefined,
-    categoryId: 'temporary_revolving',
-    subcategoryId: 'healthcare_revolving',
-    isActive: false,
-    status: 'pending',
+    categoryId: 'healthcare',
+    subcategoryId: 'healthcare_general',
+    isActive: true,
+    status: 'approved',
     sortOrder: 3,
     followers: 0,
-    fundsRaised: 0,
-    targetAmount: 100000,
-    primaryCurrency: 'USD',
+    fundsRaised: 74250000, // $45,000 × 1650 = ₦74,250,000
+    targetAmount: 165000000, // $100,000 × 1650 = ₦165,000,000
+    primaryCurrency: 'NGN',
+    exchangeRateToUSD: 1650,
     impactScore: 88,
-    supportedWaqfTypes: [WaqfType.TEMPORARY_REVOLVING],
+    supportedWaqfTypes: [WaqfType.PERMANENT, WaqfType.TEMPORARY_CONSUMABLE, WaqfType.TEMPORARY_REVOLVING],
     revolvingOptions: {
       minLockPeriodMonths: 36,
       maxLockPeriodMonths: 120,
       expectedReturnDuringPeriod: 25
     },
+    consumableOptions: {
+      minDurationMonths: 6,
+      maxDurationMonths: 36,
+      defaultSpendingSchedule: 'phased'
+    },
     investmentStrategy: {
       assetAllocation: '70% Sukuk, 20% Real Estate, 10% Cash',
       expectedAnnualReturn: 5.0,
       distributionFrequency: 'quarterly'
+    }
+  },
+
+  // EMERGENCY RELIEF - Only consumable (makes sense - can't preserve principal for emergencies)
+  {
+    name: 'Emergency Disaster Relief',
+    description: 'Immediate response to natural disasters and humanitarian crises. This cause only accepts consumable waqf because emergency relief requires immediate deployment of all funds to save lives and provide urgent aid.',
+    icon: '🚨',
+    coverImage: undefined,
+    categoryId: 'emergency',
+    subcategoryId: 'disaster_relief',
+    isActive: true,
+    status: 'approved',
+    sortOrder: 4,
+    followers: 0,
+    fundsRaised: 41250000, // $25,000 × 1650 = ₦41,250,000
+    targetAmount: 123750000, // $75,000 × 1650 = ₦123,750,000
+    primaryCurrency: 'NGN',
+    exchangeRateToUSD: 1650,
+    impactScore: 98,
+    supportedWaqfTypes: [WaqfType.TEMPORARY_CONSUMABLE],
+    consumableOptions: {
+      minDurationMonths: 1,
+      maxDurationMonths: 6,
+      defaultSpendingSchedule: 'immediate'
+    }
+  },
+
+  // MICROFINANCE - Only revolving (makes sense - loans are repaid and recycled)
+  {
+    name: 'Microfinance for Entrepreneurs',
+    description: 'Interest-free microloans for small business owners. This cause only accepts revolving waqf because loans are repaid and recycled to help more entrepreneurs. Your principal returns to you after the loan term while creating sustainable economic impact.',
+    icon: '💼',
+    coverImage: undefined,
+    categoryId: 'economic_empowerment',
+    subcategoryId: 'microfinance',
+    isActive: true,
+    status: 'approved',
+    sortOrder: 5,
+    followers: 0,
+    fundsRaised: 29700000, // $18,000 × 1650 = ₦29,700,000
+    targetAmount: 82500000, // $50,000 × 1650 = ₦82,500,000
+    primaryCurrency: 'NGN',
+    exchangeRateToUSD: 1650,
+    impactScore: 85,
+    supportedWaqfTypes: [WaqfType.TEMPORARY_REVOLVING],
+    revolvingOptions: {
+      minLockPeriodMonths: 12,
+      maxLockPeriodMonths: 60,
+      expectedReturnDuringPeriod: 100
+    }
+  },
+
+  // MOSQUE ENDOWMENT - Only permanent (makes sense - mosques are perpetual)
+  {
+    name: 'Mosque Endowment Fund',
+    description: 'Perpetual support for mosque operations and maintenance. This cause only accepts permanent waqf because mosques are meant to serve communities for generations. Your principal is preserved forever while returns fund ongoing mosque expenses.',
+    icon: '🕌',
+    coverImage: undefined,
+    categoryId: 'religious',
+    subcategoryId: 'mosque_support',
+    isActive: true,
+    status: 'approved',
+    sortOrder: 6,
+    followers: 0,
+    fundsRaised: 57750000, // $35,000 × 1650 = ₦57,750,000
+    targetAmount: 165000000, // $100,000 × 1650 = ₦165,000,000
+    primaryCurrency: 'NGN',
+    exchangeRateToUSD: 1650,
+    impactScore: 90,
+    supportedWaqfTypes: [WaqfType.PERMANENT],
+    investmentStrategy: {
+      assetAllocation: '80% Sukuk, 15% Real Estate, 5% Cash',
+      expectedAnnualReturn: 5.0,
+      distributionFrequency: 'monthly'
     }
   }
 ];

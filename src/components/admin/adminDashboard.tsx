@@ -3,15 +3,17 @@
 import React from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { FaUsers, FaLandmark, FaFileAlt, FaCog, FaMoneyBillWave } from 'react-icons/fa';
+import { FaUsers, FaDollarSign, FaFileAlt, FaCog, FaMoneyBillWave, FaLandmark } from 'react-icons/fa';
 import { Badge } from '@/components/ui/badge';
 import { useFetchWaqfData } from '@/hooks/useWaqfData';
 import { useRecentActivities } from '@/hooks/useRecentActivities';
 import { useRouter } from 'next/navigation';
 import { logActivity } from '@/lib/activity-utils';
 import { useAuth } from '@/components/auth/AuthProvider';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { AdminManagerProps } from './types';
+import { listAllDonations } from '@/lib/cause-utils';
+import type { Donation } from '@/types/waqfs';
 
 type StatCard = {
   title: string;
@@ -30,8 +32,10 @@ type ActivityItem = {
 export const AdminDashboard: React.FC<AdminManagerProps> = () => {
   const router = useRouter();
   const { user } = useAuth();
-  const { waqf, causes, assets, allocations, loading, error } = useFetchWaqfData();
+  const { waqf, causes, allocations, loading, error } = useFetchWaqfData();
   const { activities: recentActivity, loading: activitiesLoading, error: activitiesError, refetch: refetchActivities } = useRecentActivities(5);
+  const [donations, setDonations] = useState<Donation[]>([]);
+  const [donationsLoading, setDonationsLoading] = useState(true);
   
   // Log dashboard access activity
   useEffect(() => {
@@ -47,13 +51,31 @@ export const AdminDashboard: React.FC<AdminManagerProps> = () => {
     }
   }, [user?.key]);
 
+  // Fetch all donations
+  useEffect(() => {
+    const fetchDonations = async () => {
+      try {
+        setDonationsLoading(true);
+        const allDonations = await listAllDonations();
+        setDonations(allDonations);
+      } catch (error) {
+        console.error('Error fetching donations:', error);
+        setDonations([]);
+      } finally {
+        setDonationsLoading(false);
+      }
+    };
+    fetchDonations();
+  }, []);
+
   // Real data metrics
   const totalCauses = causes?.length || 0;
   const activeCauses = causes?.filter(c => c.isActive)?.length || 0;
   const pendingCauses = causes?.filter(c => c.status === 'pending')?.length || 0;
   const approvedCauses = causes?.filter(c => c.status === 'approved')?.length || 0;
-  const totalAssets = assets?.length || 0;
-  const totalFundsRaised = causes?.reduce((sum, c) => sum + (c.fundsRaised || 0), 0) || 0;
+  const totalDonations = donations?.length || 0;
+  const completedDonations = donations?.filter(d => d.status === 'completed')?.length || 0;
+  const totalFundsRaised = donations?.filter(d => d.status === 'completed')?.reduce((sum, d) => sum + d.amount, 0) || 0;
 
   const stats: StatCard[] = [
     {
@@ -72,9 +94,9 @@ export const AdminDashboard: React.FC<AdminManagerProps> = () => {
       icon: <FaFileAlt className="h-4 w-4" />,
     },
     {
-      title: 'Waqf Assets',
-      value: totalAssets,
-      icon: <FaLandmark className="h-4 w-4" />,
+      title: 'Total Donations',
+      value: totalDonations,
+      icon: <FaDollarSign className="h-4 w-4" />,
     },
     {
       title: 'Pending Approvals',
@@ -87,6 +109,7 @@ export const AdminDashboard: React.FC<AdminManagerProps> = () => {
   // Recent activity data is now fetched dynamically via useRecentActivities hook
 
   const quickActions = [
+    { label: 'Waqf Assets', icon: <FaLandmark className="h-5 w-5" />, href: '/admin/waqf-assets' },
     { label: 'Manage Users', icon: <FaUsers className="h-5 w-5" />, href: '/admin/users' },
     { label: 'Distributions', icon: <FaMoneyBillWave className="h-5 w-5" />, href: '/admin/distributions' },
     { label: 'View Reports', icon: <FaFileAlt className="h-5 w-5" />, href: '/admin/reports' },
@@ -229,7 +252,7 @@ export const AdminDashboard: React.FC<AdminManagerProps> = () => {
             'linear-gradient(135deg, #f59e0b, #d97706)',
             'linear-gradient(135deg, #ef4444, #dc2626)',
           ];
-          const emojis = ['📊', '✅', '🎯', '🏛️', '⏳'];
+          const emojis = ['📊', '✅', '🎯', '💵', '⏳'];
           
           return (
             <div 
@@ -266,7 +289,7 @@ export const AdminDashboard: React.FC<AdminManagerProps> = () => {
                   {index === 0 && `${activeCauses} active, ${totalCauses - activeCauses} inactive`}
                   {index === 1 && `${totalCauses - activeCauses} inactive`}
                   {index === 2 && `${pendingCauses} pending approval`}
-                  {index === 3 && totalAssets > 0 && `Managing ${totalAssets} ${totalAssets === 1 ? 'asset' : 'assets'}`}
+                  {index === 3 && totalDonations > 0 && `${completedDonations} completed, ${totalDonations - completedDonations} pending`}
                   {index === 4 && pendingCauses === 0 && 'All caught up! 🎉'}
                   {index === 4 && pendingCauses > 0 && `${pendingCauses} ${pendingCauses === 1 ? 'cause' : 'causes'} awaiting review`}
                 </p>
@@ -279,11 +302,12 @@ export const AdminDashboard: React.FC<AdminManagerProps> = () => {
       {/* Quick Actions */}
       <div>
         <h2 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h2>
-        <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
           {quickActions.map((action, index) => {
             const gradients = [
-              'linear-gradient(135deg, #2563eb, #9333ea)',
               'linear-gradient(135deg, #10b981, #059669)',
+              'linear-gradient(135deg, #2563eb, #9333ea)',
+              'linear-gradient(135deg, #f59e0b, #d97706)',
               'linear-gradient(135deg, #9333ea, #4338ca)',
               'linear-gradient(135deg, #4338ca, #2563eb)',
             ];

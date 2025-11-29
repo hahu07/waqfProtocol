@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { testCauses, causeExplanations } from '@/scripts/seed-test-causes';
-import { createCause } from '@/lib/cause-utils';
+import { createCauseForTesting } from '@/lib/cause-utils';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 
@@ -25,10 +25,10 @@ export default function SeedTestCausesPage() {
 
     for (const cause of testCauses) {
       try {
-        const id = await createCause(cause, user.key, user.key);
+        const id = await createCauseForTesting(cause, user.key, user.key);
         newResults.push({
           success: true,
-          message: `✅ Created: ${cause.name} (ID: ${id})`
+          message: `✅ Created: ${cause.name} (ID: ${id}) - Status: ${cause.status}, Active: ${cause.isActive}`
         });
       } catch (error) {
         newResults.push({

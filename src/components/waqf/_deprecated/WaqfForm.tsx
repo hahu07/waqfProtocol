@@ -190,15 +190,21 @@ export function WaqfForm({
       return false;
     }
     
-    // Validate consumable waqf
+    // Validate consumable waqf (UX-level validation only)
+    // Note: Backend will enforce business rules as source of truth
     if (formData.waqfType === 'temporary_consumable' || formData.isHybrid) {
       if (formData.consumableDetails) {
         const details = formData.consumableDetails;
         
-        // Validate dates if both are provided
+        // UX validation: Validate date format and logic if both are provided
         if (details.startDate && details.endDate) {
           const startDate = new Date(details.startDate);
           const endDate = new Date(details.endDate);
+          
+          if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+            alert('⚠️ Please enter valid dates for consumable waqf.');
+            return false;
+          }
           
           if (endDate <= startDate) {
             alert('⚠️ End date must be after start date for consumable waqf.');
@@ -206,18 +212,8 @@ export function WaqfForm({
           }
         }
         
-        // Validate schedule-specific requirements
-        if (details.spendingSchedule === 'phased' && 
-            !details.startDate && !details.endDate && !details.minimumMonthlyDistribution) {
-          alert('⚠️ Phased spending requires either time boundaries or minimum monthly distribution.');
-          return false;
-        }
-        
-        if (details.spendingSchedule === 'ongoing' && 
-            !details.minimumMonthlyDistribution && !details.targetAmount && !details.targetBeneficiaries) {
-          alert('⚠️ Ongoing spending requires minimum distribution or target criteria.');
-          return false;
-        }
+        // Backend will validate schedule-specific requirements
+        // Frontend only checks basic UX issues
       }
     }
 
@@ -1017,6 +1013,7 @@ export function WaqfForm({
               generated during the lock period will be distributed to your selected causes.
             </p>
           </div>
+
         </div>
       )}
 

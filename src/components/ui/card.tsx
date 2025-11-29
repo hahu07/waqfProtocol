@@ -42,6 +42,17 @@ export function CardTitle({ className, ...props }: CardTitleProps) {
   );
 }
 
+type CardDescriptionProps = HTMLAttributes<HTMLParagraphElement>;
+
+export function CardDescription({ className, ...props }: CardDescriptionProps) {
+  return (
+    <p
+      className={cn('text-sm text-muted-foreground', className)}
+      {...props}
+    />
+  );
+}
+
 type CardContentProps = HTMLAttributes<HTMLDivElement>;
 
 export function CardContent({ className, ...props }: CardContentProps) {

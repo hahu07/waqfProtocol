@@ -6,32 +6,75 @@
 /**
  * Formats a monetary amount as currency with support for Islamic finance currencies
  * @param amount - The amount to format (must be a valid number)
- * @param currency - ISO 4217 currency code (default: 'USD')
- * @param locale - BCP 47 language tag (default: 'en-US')
+ * @param currency - ISO 4217 currency code (default: 'NGN' - Nigerian Naira)
+ * @param locale - BCP 47 language tag (default: auto-selected based on currency)
  * @returns Formatted currency string
  * @throws Will throw error if amount is invalid
  */
 export const formatCurrency = (
   amount: number,
-  currency: string = 'USD',
-  locale: string = 'en-US'
+  currency: string = 'NGN',
+  locale?: string
 ): string => {
   if (typeof amount !== 'number' || isNaN(amount)) {
     throw new Error(`Invalid amount: ${amount}`);
   }
 
+  // Auto-select locale based on currency if not provided
+  const defaultLocale = locale || (currency === 'NGN' ? 'en-NG' : currency === 'USD' ? 'en-US' : 'en-US');
+
   // Special handling for Islamic finance currencies
   const islamicCurrencies = ['SAR', 'AED', 'QAR', 'KWD'];
   const options: Intl.NumberFormatOptions = {
     style: 'currency',
-    currency
+    currency,
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
   };
 
   if (islamicCurrencies.includes(currency)) {
     options.currencyDisplay = 'name';
   }
 
-  return new Intl.NumberFormat(locale, options).format(amount);
+  return new Intl.NumberFormat(defaultLocale, options).format(amount);
+};
+
+/**
+ * Converts NGN to USD using the current exchange rate
+ * @param amountNGN - Amount in Nigerian Naira
+ * @param exchangeRate - Current NGN to USD rate (default: 1650)
+ * @returns Amount in USD
+ */
+export const convertNGNtoUSD = (amountNGN: number, exchangeRate: number = 1650): number => {
+  return amountNGN / exchangeRate;
+};
+
+/**
+ * Converts USD to NGN using the current exchange rate
+ * @param amountUSD - Amount in US Dollars
+ * @param exchangeRate - Current NGN to USD rate (default: 1650)
+ * @returns Amount in NGN
+ */
+export const convertUSDtoNGN = (amountUSD: number, exchangeRate: number = 1650): number => {
+  return amountUSD * exchangeRate;
+};
+
+/**
+ * Formats currency with both NGN and USD
+ * @param amount - Amount in NGN
+ * @param showUSD - Whether to show USD equivalent (default: true)
+ * @param exchangeRate - Current exchange rate (default: 1650)
+ * @returns Formatted string with NGN and optionally USD
+ */
+export const formatCurrencyDual = (
+  amount: number,
+  showUSD: boolean = true,
+  exchangeRate: number = 1650
+): { primary: string; secondary?: string } => {
+  const primary = formatCurrency(amount, 'NGN');
+  const secondary = showUSD ? formatCurrency(convertNGNtoUSD(amount, exchangeRate), 'USD') : undefined;
+  
+  return { primary, secondary };
 };
 
 /**

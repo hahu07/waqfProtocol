@@ -1,6 +1,6 @@
 // src/lib/waqf-utils.ts
 import { setDoc, getDoc, listDocs } from '@junobuild/core';
-import type { WaqfProfile, Donation, WaqfType } from '@/types/waqfs';
+import type { WaqfProfile, Donation, WaqfType, ContributionTranche } from '@/types/waqfs';
 import { logActivity } from './activity-utils';
 import { randomUUID } from './crypto-polyfill';
 import { logger } from './logger';
@@ -30,9 +30,9 @@ const transformWaqfForBackend = (waqf: WaqfProfile): BackendWaqfData => {
       minimum_monthly_distribution: waqf.consumableDetails.minimumMonthlyDistribution || null,
       milestones: waqf.consumableDetails.milestones || null
     } : undefined,
-    revolving_details: (waqf.revolvingDetails && 
-                        waqf.revolvingDetails.lockPeriodMonths !== undefined && 
-                        waqf.revolvingDetails.maturityDate && 
+    revolving_details: (waqf.revolvingDetails &&
+                        waqf.revolvingDetails.lockPeriodMonths !== undefined &&
+                        waqf.revolvingDetails.maturityDate &&
                         waqf.revolvingDetails.principalReturnMethod) ? {
       lock_period_months: waqf.revolvingDetails.lockPeriodMonths,
       maturity_date: waqf.revolvingDetails.maturityDate,
@@ -46,8 +46,24 @@ const transformWaqfForBackend = (waqf: WaqfProfile): BackendWaqfData => {
         contribution_date: t.contributionDate,
         maturity_date: t.maturityDate,
         is_returned: t.isReturned,
-        returned_date: t.returnedDate
-      }))
+        returned_date: t.returnedDate,
+        status: t.status,
+        penalty_applied: t.penaltyApplied,
+        rollover_origin_id: t.rolloverOriginId,
+        rollover_target_id: t.rolloverTargetId,
+        installment_payments: t.installmentPayments?.map(payment => ({
+          id: payment.id,
+          amount: payment.amount,
+          due_date: payment.dueDate,
+          status: payment.status,
+          paid_date: payment.paidDate ?? null
+        }))
+      })),
+      auto_rollover_preference: waqf.revolvingDetails.autoRolloverPreference ?? 'none',
+      auto_rollover_target_cause: waqf.revolvingDetails.autoRolloverTargetCause ?? null,
+      pending_notifications: waqf.revolvingDetails.pendingNotifications?.length
+        ? waqf.revolvingDetails.pendingNotifications
+        : null
     } : undefined,
     investment_strategy: waqf.investmentStrategy ? {
       asset_allocation: waqf.investmentStrategy.assetAllocation || 'Balanced Portfolio',
@@ -161,14 +177,31 @@ const transformWaqfFromBackend = (data: unknown): WaqfProfile => {
       // Transform contribution tranches
       const tranches = rd.contribution_tranches || rd.contributionTranches;
       const transformedTranches = tranches && Array.isArray(tranches)
-        ? (tranches as Array<Record<string, unknown>>).map(t => ({
-            id: t.id as string,
-            amount: (t.amount ?? 0) as number,
-            contributionDate: (t.contribution_date || t.contributionDate) as string,
-            maturityDate: (t.maturity_date || t.maturityDate) as string,
-            isReturned: (t.is_returned ?? t.isReturned ?? false) as boolean,
-            returnedDate: (t.returned_date || t.returnedDate) as string | undefined
-          }))
+        ? (tranches as Array<Record<string, unknown>>).map(t => {
+            const payments = t.installment_payments || t.installmentPayments;
+            const installmentPayments = payments && Array.isArray(payments)
+              ? (payments as Array<Record<string, unknown>>).map(payment => ({
+                  id: payment.id as string,
+                  amount: (payment.amount ?? 0) as number,
+                  dueDate: (payment.due_date || payment.dueDate) as string,
+                  status: (payment.status || 'scheduled') as 'scheduled' | 'paid' | 'missed',
+                  paidDate: (payment.paid_date || payment.paidDate) as string | undefined
+                }))
+              : undefined;
+            return {
+              id: t.id as string,
+              amount: (t.amount ?? 0) as number,
+              contributionDate: (t.contribution_date || t.contributionDate) as string,
+              maturityDate: (t.maturity_date || t.maturityDate) as string,
+              isReturned: (t.is_returned ?? t.isReturned ?? false) as boolean,
+              returnedDate: (t.returned_date || t.returnedDate) as string | undefined,
+              status: (t.status || t.tranche_status) as ContributionTranche['status'],
+              penaltyApplied: (t.penalty_applied ?? t.penaltyApplied) as number | undefined,
+              rolloverOriginId: (t.rollover_origin_id || t.rolloverOriginId) as string | undefined,
+              rolloverTargetId: (t.rollover_target_id || t.rolloverTargetId) as string | undefined,
+              installmentPayments
+            };
+          })
         : []; // Default to empty array instead of undefined
       
       console.log('🔄 Transform revolvingDetails:', {
@@ -185,7 +218,16 @@ const transformWaqfFromBackend = (data: unknown): WaqfProfile => {
         installmentSchedule: (rd.installment_schedule || rd.installmentSchedule) as WaqfProfile['revolvingDetails']['installmentSchedule'],
         earlyWithdrawalPenalty: (rd.early_withdrawal_penalty ?? rd.earlyWithdrawalPenalty) as number | undefined,
         earlyWithdrawalAllowed: (rd.early_withdrawal_allowed ?? rd.earlyWithdrawalAllowed) as boolean,
-        contributionTranches: transformedTranches
+        contributionTranches: transformedTranches,
+        autoRolloverPreference: (rd.auto_rollover_preference || rd.autoRolloverPreference || 'none') as NonNullable<WaqfProfile['revolvingDetails']>['autoRolloverPreference'],
+        autoRolloverTargetCause: (rd.auto_rollover_target_cause || rd.autoRolloverTargetCause) as string | undefined,
+        pendingNotifications: (() => {
+          const notifications = rd.pending_notifications || rd.pendingNotifications;
+          if (!notifications || !Array.isArray(notifications)) {
+            return [];
+          }
+          return (notifications as unknown[]).filter((note): note is string => typeof note === 'string');
+        })()
       } as WaqfProfile['revolvingDetails'];
     })(),
     investmentStrategy: (() => {
@@ -454,7 +496,9 @@ export const recordDonation = async (donation: Omit<Donation, 'id'>, userId?: st
         status: donation.status || 'completed',
         date: donation.date || new Date().toISOString(),
         transaction_id: donation.transactionId,
-        donor_name: donation.donorName
+        donor_name: donation.donorName,
+        // Optional per-contribution lock period for revolving waqf
+        lock_period_months: donation.lockPeriodMonths
       } as Record<string, unknown>
     }
   });

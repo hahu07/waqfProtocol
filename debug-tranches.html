@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Waqf Tranches</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            max-width: 900px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border: 2px solid #ddd;
+        }
+        .pass { color: #22c55e; font-weight: bold; }
+        .fail { color: #ef4444; font-weight: bold; }
+        .info { color: #3b82f6; }
+        pre { background: #f8f8f8; padding: 10px; border-radius: 4px; overflow-x: auto; }
+        h2 { margin-top: 0; color: #333; }
+        .step { margin: 15px 0; padding: 10px; background: #fafafa; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Waqf Tranche Debug Tool</h1>
+    
+    <div class="section">
+        <h2>Instructions</h2>
+        <ol>
+            <li>Open your waqf dashboard in a browser</li>
+            <li>Press <strong>F12</strong> to open Developer Tools</li>
+            <li>Go to the <strong>Console</strong> tab</li>
+            <li>Copy and paste the script below</li>
+            <li>Press <strong>Enter</strong></li>
+            <li>Check the results below</li>
+        </ol>
+    </div>
+
+    <div class="section">
+        <h2>📋 Debug Script (Copy This)</h2>
+        <pre><code>// Find the waqf data in React state
+function findReactState(element) {
+    for (const key in element) {
+        if (key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance')) {
+            return element[key];
+        }
+    }
+    return null;
+}
+
+// Try to find waqf data
+let waqfData = null;
+const bodyElement = document.querySelector('body');
+const fiber = findReactState(bodyElement);
+
+if (fiber) {
+    // Try to extract waqf from React tree
+    console.log('Found React fiber, searching for waqf data...');
+    // This is a simplified search - may need adjustment
+}
+
+// Alternative: Ask user to paste waqf data
+console.log('%c🔍 TRANCHE DEBUG TOOL', 'font-size: 20px; font-weight: bold; color: #3b82f6;');
+console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6;');
+console.log('');
+console.log('%cPlease run this in your console to check your waqf:', 'color: #666; font-size: 14px;');
+console.log('');
+console.log('%c// Assuming your waqf is available in component state', 'color: #999;');
+console.log('%c// You can access it via browser dev tools React extension', 'color: #999;');
+console.log('');
+
+// Debug function to analyze waqf
+window.debugWaqfTranches = function(waqf) {
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6;');
+    console.log('%c📊 WAQF ANALYSIS REPORT', 'font-size: 16px; font-weight: bold; color: #3b82f6;');
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6;');
+    console.log('');
+    
+    // Check 1: Waqf Type
+    console.log('%c✓ CHECK 1: Waqf Type', 'font-weight: bold; color: #333;');
+    const waqfType = typeof waqf.waqfType === 'string' ? waqf.waqfType : JSON.stringify(waqf.waqfType);
+    const isRevolving = waqfType === 'TemporaryRevolving' || waqfType === 'temporary_revolving';
+    const isHybrid = waqf.isHybrid;
+    
+    console.log('  Type:', waqfType);
+    console.log('  Is Hybrid:', isHybrid);
+    console.log('  Is Revolving:', isRevolving ? '%c✓ YES' : '%c✗ NO', isRevolving ? 'color: #22c55e' : 'color: #ef4444');
+    
+    if (isHybrid) {
+        console.log('  Hybrid Allocations:', waqf.hybridAllocations);
+    }
+    console.log('');
+    
+    // Check 2: Revolving Details
+    console.log('%c✓ CHECK 2: Revolving Details', 'font-weight: bold; color: #333;');
+    const hasRevolvingDetails = !!waqf.revolvingDetails;
+    console.log('  Has revolving details:', hasRevolvingDetails ? '%c✓ YES' : '%c✗ NO', hasRevolvingDetails ? 'color: #22c55e' : 'color: #ef4444');
+    
+    if (hasRevolvingDetails) {
+        console.log('  Lock Period (months):', waqf.revolvingDetails.lockPeriodMonths);
+        console.log('  Maturity Date:', waqf.revolvingDetails.maturityDate);
+    }
+    console.log('');
+    
+    // Check 3: Contribution Tranches
+    console.log('%c✓ CHECK 3: Contribution Tranches', 'font-weight: bold; color: #333;');
+    const tranches = waqf.revolvingDetails?.contributionTranches;
+    const hasTranches = Array.isArray(tranches) && tranches.length > 0;
+    
+    console.log('  Has tranches array:', Array.isArray(tranches) ? '%c✓ YES' : '%c✗ NO', Array.isArray(tranches) ? 'color: #22c55e' : 'color: #ef4444');
+    console.log('  Tranches count:', tranches?.length || 0);
+    console.log('');
+    
+    if (hasTranches) {
+        const now = Date.now() * 1_000_000;
+        
+        tranches.forEach((tranche, index) => {
+            const maturityDate = parseInt(tranche.maturityDate);
+            const isMatured = now >= maturityDate;
+            const daysUntil = Math.ceil((maturityDate - now) / (1_000_000 * 1000 * 60 * 60 * 24));
+            
+            console.log(`%c  Tranche #${index + 1}`, 'font-weight: bold; color: #666;');
+            console.log('    Amount:', tranche.amount);
+            console.log('    Status:', tranche.status || 'N/A');
+            console.log('    Is Returned:', tranche.isReturned);
+            console.log('    Is Matured:', isMatured ? '%c✓ YES' : '%c✗ NO (' + daysUntil + ' days)', isMatured ? 'color: #22c55e' : 'color: #f59e0b');
+            console.log('    Maturity Date:', new Date(maturityDate / 1_000_000).toLocaleDateString());
+            console.log('');
+        });
+        
+        // Summary
+        const maturedCount = tranches.filter(t => {
+            const maturityDate = parseInt(t.maturityDate);
+            return !t.isReturned && now >= maturityDate && t.status !== 'rolled_over' && !t.conversionDetails;
+        }).length;
+        
+        const upcomingCount = tranches.filter(t => {
+            const maturityDate = parseInt(t.maturityDate);
+            return !t.isReturned && now < maturityDate && t.status !== 'rolled_over';
+        }).length;
+        
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6;');
+        console.log('%c📊 SUMMARY', 'font-weight: bold; color: #3b82f6;');
+        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6;');
+        console.log('  Matured tranches:', maturedCount, maturedCount > 0 ? '(Yellow alert should show)' : '');
+        console.log('  Upcoming tranches:', upcomingCount, upcomingCount > 0 ? '(Blue alert should show)' : '');
+        console.log('');
+        
+        if (maturedCount === 0 && upcomingCount === 0) {
+            console.log('%c⚠️  All tranches are returned or converted - No buttons will show', 'color: #f59e0b; font-weight: bold;');
+        } else if (maturedCount > 0) {
+            console.log('%c✓ You should see YELLOW "Take Action Now →" button', 'color: #22c55e; font-weight: bold;');
+        } else if (upcomingCount > 0) {
+            console.log('%c✓ You should see BLUE "View All Tranches & Set Preferences →" button', 'color: #3b82f6; font-weight: bold;');
+        }
+        console.log('');
+    } else {
+        console.log('%c⚠️  NO TRANCHES FOUND', 'color: #f59e0b; font-weight: bold;');
+        console.log('');
+        console.log('%cPossible reasons:', 'font-weight: bold;');
+        console.log('  1. This is not a revolving waqf');
+        console.log('  2. No contributions have been made yet');
+        console.log('  3. The waqf was created before tranche system was implemented');
+        console.log('');
+        console.log('%cSolution: Add funds to create a tranche', 'color: #3b82f6; font-weight: bold;');
+    }
+    
+    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #3b82f6;');
+    console.log('');
+};
+
+console.log('');
+console.log('%c📝 HOW TO USE:', 'font-weight: bold; color: #333;');
+console.log('  Copy your waqf object and paste: debugWaqfTranches(yourWaqfObject)');
+console.log('');
+console.log('%c💡 TIP: Install React DevTools extension to easily access component state', 'color: #666;');
+console.log('');
+</code></pre>
+    </div>
+
+    <div class="section">
+        <h2>🎯 Quick Checklist</h2>
+        <div class="step">
+            <strong>Step 1:</strong> Do you have a revolving waqf?
+            <ul>
+                <li>Check if your waqf type shows "Revolving Waqf" or includes revolving allocation</li>
+            </ul>
+        </div>
+        
+        <div class="step">
+            <strong>Step 2:</strong> Have you added funds?
+            <ul>
+                <li>Tranches are created when you add funds to a revolving waqf</li>
+                <li>The initial waqf creation doesn't create tranches until first contribution</li>
+            </ul>
+        </div>
+        
+        <div class="step">
+            <strong>Step 3:</strong> Check browser console for errors
+            <ul>
+                <li>Press F12 → Console tab</li>
+                <li>Look for any red error messages</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🚀 Expected Behavior</h2>
+        <p><strong>If you have upcoming tranches (not yet matured):</strong></p>
+        <ul>
+            <li>You'll see a BLUE/PURPLE card with 📅 icon</li>
+            <li>Shows "Upcoming Maturities" count</li>
+            <li>Shows next maturity date and countdown</li>
+            <li>Button: <strong>"View All Tranches & Set Preferences →"</strong></li>
+        </ul>
+        
+        <p><strong>If you have matured tranches:</strong></p>
+        <ul>
+            <li>You'll see a YELLOW/ORANGE card with ⏰ icon</li>
+            <li>Shows "X Tranche(s) Ready!"</li>
+            <li>Lists available actions</li>
+            <li>Button: <strong>"Take Action Now →"</strong></li>
+        </ul>
+        
+        <p><strong>If no tranches exist:</strong></p>
+        <ul>
+            <li>No alert cards will show</li>
+            <li>Solution: Click "💰 Add Funds" to create your first tranche</li>
+        </ul>
+    </div>
+</body>
+</html>

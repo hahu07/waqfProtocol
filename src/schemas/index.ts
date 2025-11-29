@@ -1,10 +1,187 @@
 /**
  * Zod Validation Schemas
- * 
+ *
  * Runtime type validation for all core data models
  */
 
 import { z } from 'zod';
+
+// ============================================
+// IMPACT EVENT SCHEMAS
+// ============================================
+
+export const impactEventLocationSchema = z.object({
+  country: z.string().min(2),
+  city: z.string().optional(),
+  region: z.string().optional(),
+  coordinates: z.object({
+    lat: z.number().min(-90).max(90),
+    lng: z.number().min(-180).max(180),
+  }).optional(),
+});
+
+export const beneficiaryTestimonialSchema = z.object({
+  name: z.string().min(2),
+  quote: z.string().min(10),
+  photo: z.string().url().optional(),
+  date: z.string().optional(),
+});
+
+export const impactEventMediaSchema = z.object({
+  photos: z.array(z.string().url()).default([]),
+  videos: z.array(z.string().url()).default([]),
+  testimonials: z.array(beneficiaryTestimonialSchema).default([]),
+});
+
+export const impactEventVerificationSchema = z.object({
+  verifiedBy: z.string().min(2),
+  verificationDate: z.string(),
+  proofDocuments: z.array(z.string().url()).default([]),
+  status: z.enum(['pending', 'verified', 'rejected']),
+  notes: z.string().optional(),
+});
+
+export const impactEventSchema = z.object({
+  id: z.string(),
+  waqfId: z.string(),
+  waqfName: z.string(),
+  causeId: z.string(),
+  causeName: z.string(),
+  timestamp: z.string(),
+  type: z.enum(['distribution', 'milestone_completed', 'beneficiary_helped', 'project_completed', 'funds_deployed', 'emergency_response', 'investment_return']),
+  amount: z.number().min(0),
+  currency: z.string().length(3),
+  beneficiaryCount: z.number().int().min(0),
+  projectsCompleted: z.number().int().min(0).optional(),
+  location: impactEventLocationSchema,
+  media: impactEventMediaSchema,
+  verification: impactEventVerificationSchema,
+  description: z.string().min(10),
+  title: z.string().min(5),
+  createdBy: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+  isPublic: z.boolean().default(true),
+  isFeatured: z.boolean().default(false),
+});
+
+// ============================================
+// DONOR PROGRESSION SCHEMAS
+// ============================================
+
+export const donorBadgeSchema = z.object({
+  id: z.string(),
+  name: z.string().min(2),
+  description: z.string().min(10),
+  icon: z.string(),
+  earnedAt: z.string(),
+  rarity: z.enum(['common', 'rare', 'epic', 'legendary']),
+  category: z.enum(['contribution', 'impact', 'social', 'special', 'seasonal']),
+  progress: z.object({
+    current: z.number().min(0),
+    target: z.number().min(1),
+  }).optional(),
+});
+
+export const donorStatsSchema = z.object({
+  totalContributed: z.number().min(0).default(0),
+  beneficiariesHelped: z.number().int().min(0).default(0),
+  causesSupported: z.number().int().min(0).default(0),
+  waqfsCreated: z.number().int().min(0).default(0),
+  referralsConverted: z.number().int().min(0).default(0),
+  consecutiveDays: z.number().int().min(0).default(0),
+  longestStreak: z.number().int().min(0).default(0),
+  lastContributionDate: z.string().optional(),
+});
+
+export const donorRankSchema = z.object({
+  global: z.number().int().min(0).default(0),
+  category: z.record(z.string(), z.number().int().min(0)).default({}),
+  monthly: z.number().int().min(0).default(0),
+  allTime: z.number().int().min(0).default(0),
+});
+
+export const donorProgressionProfileSchema = z.object({
+  userId: z.string(),
+  displayName: z.string().min(2).max(50),
+  avatar: z.string().optional(),
+  level: z.number().int().min(1).max(100).default(1),
+  xp: z.number().min(0).default(0),
+  nextLevelXp: z.number().min(1).default(100),
+  badges: z.array(donorBadgeSchema).default([]),
+  stats: donorStatsSchema,
+  rank: donorRankSchema,
+  publicProfile: z.boolean().default(false),
+  showOnLeaderboard: z.boolean().default(false),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+// ============================================
+// REFERRAL SCHEMAS
+// ============================================
+
+export const referralTierSchema = z.object({
+  tier: z.number().int().min(1),
+  referralsRequired: z.number().int().min(1),
+  bonus: z.string(),
+  badge: z.string(),
+  percentageBonus: z.number().min(0).max(100).optional(),
+});
+
+export const referralSchema = z.object({
+  userId: z.string(),
+  displayName: z.string(),
+  joinedAt: z.string(),
+  totalContributed: z.number().min(0).default(0),
+  status: z.enum(['pending', 'active', 'inactive']),
+  firstContributionDate: z.string().optional(),
+});
+
+export const referralStatsSchema = z.object({
+  totalReferrals: z.number().int().min(0).default(0),
+  activeReferrals: z.number().int().min(0).default(0),
+  totalEarned: z.number().min(0).default(0),
+  conversionRate: z.number().min(0).max(100).default(0),
+  currentTier: z.number().int().min(1).default(1),
+});
+
+export const referralProgramSchema = z.object({
+  referrerId: z.string(),
+  referralCode: z.string().min(6).max(20),
+  refereeBonus: z.number().min(0).default(10),
+  referrerBonus: z.number().min(0).default(10),
+  tiers: z.array(referralTierSchema),
+  stats: referralStatsSchema,
+  referrals: z.array(referralSchema).default([]),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+// ============================================
+// LEADERBOARD SCHEMAS
+// ============================================
+
+export const leaderboardEntrySchema = z.object({
+  rank: z.number().int().min(1),
+  userId: z.string(),
+  displayName: z.string(),
+  avatar: z.string().url().optional(),
+  score: z.number().min(0),
+  badge: z.string().optional(),
+  change: z.number().int(),
+  level: z.number().int().min(1).max(100).optional(),
+});
+
+export const leaderboardSchema = z.object({
+  type: z.enum(['contributors', 'impact', 'rising_stars', 'streaks', 'referrals']),
+  period: z.enum(['daily', 'weekly', 'monthly', 'yearly', 'all-time']),
+  category: z.string().optional(),
+  waqfType: z.string().optional(),
+  entries: z.array(leaderboardEntrySchema),
+  generatedAt: z.string(),
+  totalParticipants: z.number().int().min(0),
+});
 
 // ============================================
 // DONOR & PROFILE SCHEMAS
@@ -106,6 +283,120 @@ export type FinancialMetricsInput = z.infer<typeof financialMetricsSchema>;
 // WAQF TYPE SCHEMAS
 // ============================================
 
+const portfolioAllocationChangeSchema = z.object({
+  id: z.string().min(1),
+  allocationId: z.string().min(1),
+  previousPercentage: z.number().min(0).max(100),
+  newPercentage: z.number().min(0).max(100),
+  trigger: z.enum(['donor_request', 'system_alert', 'emergency_response', 'scheduled_rebalance']),
+  notes: z.string().max(1000).optional(),
+});
+
+const portfolioRebalanceEventSchema = z.object({
+  id: z.string().min(1),
+  timestamp: z.string().datetime(),
+  requestedBy: z.string().optional(),
+  reason: z.string().min(5),
+  changes: z.array(portfolioAllocationChangeSchema).nonempty(),
+});
+
+const portfolioAllocationSchema = z.object({
+  allocationId: z.string().min(1),
+  causeId: z.string().min(1),
+  allocationPercentage: z.number().min(0).max(100),
+  currentBalance: z.number().min(0),
+  targetBalance: z.number().min(0),
+  lockUntil: z.string().datetime().optional(),
+  lastAdjustedAt: z.string().datetime().optional(),
+});
+
+const portfolioImpactMetricsSchema = z.object({
+  beneficiariesSupported: z.number().int().min(0),
+  projectsCompleted: z.number().int().min(0),
+  householdsServed: z.number().int().min(0).optional(),
+  impactScore: z.number().min(0).max(100).optional(),
+});
+
+const basePortfolioSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(3).max(120),
+  description: z.string().min(10).max(2000),
+  ownerId: z.string().min(1),
+  participatingWaqfs: z.array(z.string()).min(1),
+  allocations: z.array(portfolioAllocationSchema).nonempty(),
+  rebalanceHistory: z.array(portfolioRebalanceEventSchema).default([]),
+  impactMetrics: portfolioImpactMetricsSchema.optional(),
+  tags: z.array(z.string().min(1)).optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime().optional(),
+});
+
+export const consumablePortfolioSchema = basePortfolioSchema.extend({
+  portfolioType: z.literal('consumable'),
+  allowedWaqfTypes: z.tuple([z.literal('temporary_consumable')]),
+  totalCommitted: z.number().min(0),
+  totalDistributed: z.number().min(0),
+  totalContributed: z.number().min(0).optional(),
+  totalBeneficiaries: z.number().int().min(0).optional(),
+  completionPercentage: z.number().min(0).max(100).optional(),
+  targetCompletionDate: z.string().datetime().optional(),
+  nextRebalanceDate: z.string().datetime().optional(),
+}).refine(
+  (portfolio) => {
+    const totalPercentage = portfolio.allocations.reduce((sum, alloc) => sum + alloc.allocationPercentage, 0);
+    return Math.abs(totalPercentage - 100) < 0.01;
+  },
+  {
+    message: 'Portfolio allocations must sum to 100%',
+    path: ['allocations'],
+  }
+);
+
+export const returnsPortfolioSchema = basePortfolioSchema.extend({
+  portfolioType: z.literal('returns'),
+  allowedWaqfTypes: z.tuple([z.literal('permanent'), z.literal('temporary_revolving')]),
+  totalPrincipal: z.number().min(0),
+  availableReturns: z.number().min(0),
+  projectedAnnualReturns: z.number().min(0),
+  totalReturnsDistributed: z.number().min(0),
+  nextDistributionDate: z.string().datetime().optional(),
+  lastDistributionDate: z.string().datetime().optional(),
+}).refine(
+  (portfolio) => {
+    const totalPercentage = portfolio.allocations.reduce((sum, alloc) => sum + alloc.allocationPercentage, 0);
+    return Math.abs(totalPercentage - 100) < 0.01;
+  },
+  {
+    message: 'Portfolio allocations must sum to 100%',
+    path: ['allocations'],
+  }
+);
+
+export const portfolioSchema = z.discriminatedUnion('portfolioType', [
+  consumablePortfolioSchema,
+  returnsPortfolioSchema,
+]);
+
+const consumablePortfolioMembershipSchema = z.object({
+  portfolioId: z.string().min(1),
+  portfolioType: z.literal('consumable'),
+  preferredRebalanceCadence: z.enum(['weekly', 'monthly', 'quarterly', 'annually']).optional(),
+  enableRebalanceAlerts: z.boolean().optional(),
+  allowUrgentOverrides: z.boolean().optional(),
+});
+
+const returnsPortfolioMembershipSchema = z.object({
+  portfolioId: z.string().min(1),
+  portfolioType: z.literal('returns'),
+  preferredRebalanceCadence: z.enum(['weekly', 'monthly', 'quarterly', 'annually']).optional(),
+  enableRebalanceAlerts: z.boolean().optional(),
+});
+
+export const portfolioMembershipSchema = z.discriminatedUnion('portfolioType', [
+  consumablePortfolioMembershipSchema,
+  returnsPortfolioMembershipSchema,
+]);
+
 export const consumableWaqfDetailsSchema = z.object({
   spendingSchedule: z.enum(['immediate', 'phased', 'milestone-based', 'ongoing']),
   
@@ -124,9 +415,11 @@ export const consumableWaqfDetailsSchema = z.object({
     targetAmount: z.number().positive(),
   })).optional(),
   minimumMonthlyDistribution: z.number().positive('Minimum distribution must be positive').optional(),
+  portfolioMembership: consumablePortfolioMembershipSchema.optional(),
 }).refine(
   (data) => {
-    // Validate date logic if both dates are present
+    // UX validation: Date logic for better error messages
+    // Backend will also validate this as source of truth
     if (data.startDate && data.endDate) {
       return new Date(data.endDate) > new Date(data.startDate);
     }
@@ -136,25 +429,32 @@ export const consumableWaqfDetailsSchema = z.object({
     message: 'End date must be after start date',
     path: ['endDate'],
   }
-).refine(
-  (data) => {
-    // Schedule-specific validations
-    if (data.spendingSchedule === 'milestone-based') {
-      return data.milestones && data.milestones.length > 0;
-    }
-    if (data.spendingSchedule === 'phased') {
-      return data.startDate || data.endDate || data.minimumMonthlyDistribution;
-    }
-    if (data.spendingSchedule === 'ongoing') {
-      return data.minimumMonthlyDistribution || data.targetAmount || data.targetBeneficiaries;
-    }
-    return true;
-  },
-  {
-    message: 'Spending schedule requires appropriate configuration',
-    path: ['spendingSchedule'],
-  }
 );
+// Note: Backend (waqf_hooks.rs) validates business rules as authority
+// This schema focuses on format/type validation for UX
+
+
+const installmentPaymentSchema = z.object({
+  id: z.string().min(1),
+  amount: z.number().min(0),
+  dueDate: z.string(),
+  status: z.enum(['scheduled', 'paid', 'missed']),
+  paidDate: z.string().optional(),
+});
+
+const contributionTrancheSchema = z.object({
+  id: z.string().min(1),
+  amount: z.number().min(0),
+  contributionDate: z.string(),
+  maturityDate: z.string(),
+  isReturned: z.boolean(),
+  returnedDate: z.string().optional(),
+  status: z.enum(['locked', 'matured', 'return_scheduled', 'returned', 'rolled_over']).optional(),
+  penaltyApplied: z.number().min(0).optional(),
+  rolloverOriginId: z.string().optional(),
+  rolloverTargetId: z.string().optional(),
+  installmentPayments: z.array(installmentPaymentSchema).optional(),
+});
 
 export const revolvingWaqfDetailsSchema = z.object({
   lockPeriodMonths: z.number().int().min(1, 'Lock period must be at least 1 month').max(240),
@@ -166,6 +466,10 @@ export const revolvingWaqfDetailsSchema = z.object({
   }).optional(),
   earlyWithdrawalPenalty: z.number().min(0).max(1).optional(),
   earlyWithdrawalAllowed: z.boolean().default(false),
+  contributionTranches: z.array(contributionTrancheSchema).optional(),
+  autoRolloverPreference: z.enum(['none', 'same_cause', 'cause_pool']).default('none'),
+  autoRolloverTargetCause: z.string().optional(),
+  pendingNotifications: z.array(z.string()).optional(),
 }).refine(
   (data) => {
     if (data.principalReturnMethod === 'installments' && !data.installmentSchedule) {
@@ -233,6 +537,7 @@ export const waqfProfileSchema = z.object({
   consumableDetails: consumableWaqfDetailsSchema.optional(),
   revolvingDetails: revolvingWaqfDetailsSchema.optional(),
   investmentStrategy: investmentStrategySchema.optional(),
+  portfolioDetails: consumablePortfolioSchema.optional(),
   donor: donorProfileSchema,
   selectedCauses: z.array(z.string()).min(1, 'Select at least one cause'),
   causeAllocation: z.record(z.string(), z.number().min(0).max(100))

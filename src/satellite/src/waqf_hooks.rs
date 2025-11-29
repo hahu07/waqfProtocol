@@ -356,8 +356,8 @@ fn validate_waqf_type_and_details(waqf: &WaqfData) -> std::result::Result<(), St
                 return Err("Hybrid waqf must have at least one cause allocation".to_string());
             }
             
-            // Validate each allocation sums to 100%
-            validate_hybrid_allocations(allocations)?;
+            // NOTE: Allocation sum validation moved to frontend for better UX
+            // validate_hybrid_allocations(allocations)?;
             
             ic_cdk::println!(
                 "INFO: Hybrid waqf validated - {} ({} cause allocations)",
@@ -375,14 +375,17 @@ fn validate_waqf_type_and_details(waqf: &WaqfData) -> std::result::Result<(), St
 }
 
 // Main assertion function for waqf operations
-pub fn assert_waqf_operations(context: AssertSetDocContext) -> std::result::Result<(), String> {
+pub fn assert_waqf_operations(mut context: AssertSetDocContext) -> std::result::Result<(), String> {
+    use junobuild_utils::encode_doc_data;
+    use crate::waqf_types::{WaqfType, ContributionTranche};
+    
     ic_cdk::println!("🔍 ASSERT_WAQF_OPERATIONS CALLED - Collection: {}, Has current: {}", 
         context.data.collection, 
         context.data.data.current.is_some()
     );
     
     // Decode waqf data with proper error handling
-    let waqf: WaqfData = decode_doc_data(&context.data.data.proposed.data)
+    let mut waqf: WaqfData = decode_doc_data(&context.data.data.proposed.data)
         .map_err(|e| format!("Invalid waqf data structure: {}", e))?;
     
     // Validate the waqf data structure
@@ -392,10 +395,133 @@ pub fn assert_waqf_operations(context: AssertSetDocContext) -> std::result::Resu
     validate_waqf_type_and_details(&waqf)?;
     
     // Check if this is a creation or update
-    if context.data.data.current.is_none() {
+    let is_new_waqf = context.data.data.current.is_none();
+    let mut needs_data_update = false;
+    
+    if is_new_waqf {
         ic_cdk::println!("✨ NEW WAQF CREATION - validating minimum capital");
         // This is a new waqf creation - enforce minimum capital
         validate_minimum_waqf_asset(&waqf)?;
+        
+        // Initialize cause allocations for new waqfs
+        let waqf_asset = waqf.waqf_asset;
+        let needs_init = waqf.financial.cause_allocations.is_empty() ||
+                         waqf.financial.cause_allocations.values().all(|&v| v == 0.0);
+        
+        if needs_init {
+            ic_cdk::println!("Initializing cause allocations for new waqf: {}", waqf.name);
+            
+            waqf.financial.cause_allocations.clear();
+            
+            for cause_id in &waqf.selected_causes {
+                let percentage = waqf.cause_allocation.get(cause_id)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        if waqf.selected_causes.len() > 0 {
+                            100.0 / waqf.selected_causes.len() as f64
+                        } else {
+                            100.0
+                        }
+                    });
+                
+                let amount = (waqf_asset * percentage) / 100.0;
+                waqf.financial.cause_allocations.insert(cause_id.clone(), amount);
+                
+                ic_cdk::println!("  Cause {}: {:.2}% = {:.2}", cause_id, percentage, amount);
+            }
+            
+            needs_data_update = true;
+            ic_cdk::println!("✅ Initialized {} cause allocations", waqf.selected_causes.len());
+        }
+        
+        // Create initial tranche for revolving waqfs
+        let should_create_tranche = matches!(waqf.waqf_type, WaqfType::TemporaryRevolving) ||
+            (matches!(waqf.waqf_type, WaqfType::Hybrid) && waqf.revolving_details.is_some());
+        
+        if should_create_tranche {
+            if let Some(ref mut revolving_details) = waqf.revolving_details {
+                let current_time_nanos = ic_cdk::api::time();
+                let current_time = current_time_nanos.to_string();
+                
+                let lock_period_nanos = (revolving_details.lock_period_months as u64) 
+                    * 30 * 24 * 60 * 60 * 1_000_000_000;
+                let maturity_time_nanos = current_time_nanos + lock_period_nanos;
+                let maturity_date = maturity_time_nanos.to_string();
+                
+                // Calculate revolving portion
+                let revolving_amount = if matches!(waqf.waqf_type, WaqfType::Hybrid) {
+                    if let Some(ref allocations) = waqf.hybrid_allocations {
+                        let total_waqf = waqf.waqf_asset;
+                        let mut total_revolving_pct = 0.0;
+                        
+                        for alloc in allocations {
+                            total_revolving_pct += alloc.allocations.temporary_revolving.unwrap_or(0.0);
+                        }
+                        
+                        let avg_revolving_pct = if !allocations.is_empty() {
+                            total_revolving_pct / allocations.len() as f64
+                        } else {
+                            0.0
+                        };
+                        
+                        let revolving_amt = (total_waqf * avg_revolving_pct) / 100.0;
+                        
+                        ic_cdk::println!(
+                            "Hybrid waqf - Total: {}, Avg Revolving %: {:.2}, Revolving Amount: {:.2}",
+                            total_waqf, avg_revolving_pct, revolving_amt
+                        );
+                        
+                        revolving_amt
+                    } else {
+                        waqf.waqf_asset
+                    }
+                } else {
+                    waqf.waqf_asset
+                };
+                
+                if revolving_amount > 0.0 {
+                    let tranche_id = format!("tranche_initial_{}", current_time_nanos);
+                    let initial_tranche = ContributionTranche {
+                        id: tranche_id.clone(),
+                        amount: revolving_amount,
+                        contribution_date: current_time.clone(),
+                        maturity_date: maturity_date.clone(),
+                        is_returned: false,
+                        returned_date: None,
+                        status: Some("locked".to_string()),
+                        penalty_applied: None,
+                        rollover_origin_id: None,
+                        rollover_target_id: None,
+                        installment_payments: None,
+                        expiration_preference: revolving_details.default_expiration_preference.clone(),
+                        conversion_details: None,
+                    };
+                    
+                    ic_cdk::println!(
+                        "✨ Creating initial tranche: ID={}, Amount={:.2}, Maturity in {} months",
+                        tranche_id, revolving_amount, revolving_details.lock_period_months
+                    );
+                    
+                    revolving_details.contribution_tranches = Some(vec![initial_tranche]);
+                    needs_data_update = true;
+                    
+                    ic_cdk::println!("✅ Initial tranche created: Amount={:.2}", revolving_amount);
+                } else {
+                    ic_cdk::println!(
+                        "⚠️ No revolving amount for hybrid waqf {}, skipping tranche creation",
+                        waqf.name
+                    );
+                }
+            }
+        }
+        
+        // Update the proposed data if we made changes
+        if needs_data_update {
+            let updated_data = encode_doc_data(&waqf)
+                .map_err(|e| format!("Failed to encode updated waqf data: {}", e))?;
+            context.data.data.proposed.data = updated_data;
+            ic_cdk::println!("✅ Waqf initialization complete for: {}", waqf.name);
+        }
     } else {
         ic_cdk::println!("📝 WAQF UPDATE - validating field restrictions");
         // This is an update - validate field restrictions
@@ -410,6 +536,17 @@ pub fn assert_waqf_operations(context: AssertSetDocContext) -> std::result::Resu
             
             // Validate that immutable fields haven't changed
             validate_creator_field_restrictions(&previous_waqf, &waqf, &context.caller.to_string())?;
+
+            // Enforce that revolving lock period for an existing waqf cannot be reduced
+            if let (Some(prev_rev), Some(new_rev)) = (&previous_waqf.revolving_details, &waqf.revolving_details) {
+                if new_rev.lock_period_months < prev_rev.lock_period_months {
+                    return Err(format!(
+                        "Lock period cannot be reduced from {} to {} months. You can only increase or keep the existing lock period.",
+                        prev_rev.lock_period_months,
+                        new_rev.lock_period_months
+                    ));
+                }
+            }
         }
     }
     
@@ -444,31 +581,185 @@ pub fn assert_waqf_deletion(context: AssertDeleteDocContext) -> std::result::Res
     Ok(())
 }
 
-// Handle waqf changes (logging, notifications, etc.)
+// Handle waqf changes (logging, initialization, etc.)
 pub fn handle_waqf_changes(context: OnSetDocContext) -> std::result::Result<(), String> {
-    let waqf_data: WaqfData = decode_doc_data(&context.data.data.after.data)
+    use junobuild_satellite::{set_doc, SetDoc};
+    use junobuild_utils::encode_doc_data;
+    use crate::waqf_types::{WaqfType, ContributionTranche};
+
+    let mut waqf_data: WaqfData = decode_doc_data(&context.data.data.after.data)
         .map_err(|e| format!("Cannot decode waqf data: {}", e))?;
-    
+
     // Determine if this is a creation or update
-    let operation_type = if context.data.data.before.is_none() {
-        "CREATE"
-    } else {
-        "UPDATE"
-    };
-    
-    // Validate creator permissions for updates
-    if operation_type == "UPDATE" {
-        if let Some(before_doc) = &context.data.data.before {
-            let previous_waqf: WaqfData = decode_doc_data(&before_doc.data)
-                .map_err(|e| format!("Cannot decode previous waqf data: {}", e))?;
-            
-            validate_creator_field_restrictions(&previous_waqf, &waqf_data, &context.caller.to_string())?;
+    let is_new_waqf = context.data.data.before.is_none();
+    let operation_type = if is_new_waqf { "CREATE" } else { "UPDATE" };
+
+    // Track whether we need to persist changes back to the document
+    let mut needs_update = false;
+
+    // Initialize cause allocations and tranches only on creation
+    if is_new_waqf {
+        let waqf_asset = waqf_data.waqf_asset;
+
+        // 1) Initialize cause allocations if missing or zero
+        let needs_init = waqf_data.financial.cause_allocations.is_empty()
+            || waqf_data
+                .financial
+                .cause_allocations
+                .values()
+                .all(|&v| v == 0.0);
+
+        if needs_init {
+            ic_cdk::println!(
+                "Initializing cause allocations for new waqf (on_set_doc): {}",
+                waqf_data.name
+            );
+
+            waqf_data.financial.cause_allocations.clear();
+
+            for cause_id in &waqf_data.selected_causes {
+                let percentage = waqf_data
+                    .cause_allocation
+                    .get(cause_id)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        if !waqf_data.selected_causes.is_empty() {
+                            100.0 / waqf_data.selected_causes.len() as f64
+                        } else {
+                            100.0
+                        }
+                    });
+
+                let amount = (waqf_asset * percentage) / 100.0;
+                waqf_data
+                    .financial
+                    .cause_allocations
+                    .insert(cause_id.clone(), amount);
+
+                ic_cdk::println!(
+                    "  [on_set_doc] Cause {}: {:.2}% = {:.2}",
+                    cause_id, percentage, amount
+                );
+            }
+
+            needs_update = true;
+        }
+
+        // 2) Create initial tranche for revolving / hybrid waqfs
+        let should_create_tranche = matches!(waqf_data.waqf_type, WaqfType::TemporaryRevolving)
+            || (matches!(waqf_data.waqf_type, WaqfType::Hybrid)
+                && waqf_data.revolving_details.is_some());
+
+        if should_create_tranche {
+            if let Some(ref mut revolving_details) = waqf_data.revolving_details {
+                let current_time_nanos = ic_cdk::api::time();
+                let current_time = current_time_nanos.to_string();
+
+                // Maturity based on lock period
+                let lock_period_nanos =
+                    (revolving_details.lock_period_months as u64)
+                        * 30
+                        * 24
+                        * 60
+                        * 60
+                        * 1_000_000_000;
+                let maturity_time_nanos = current_time_nanos + lock_period_nanos;
+                let maturity_date = maturity_time_nanos.to_string();
+
+                // Revolving portion
+                let revolving_amount = if matches!(waqf_data.waqf_type, WaqfType::Hybrid) {
+                    if let Some(ref allocations) = waqf_data.hybrid_allocations {
+                        let total_waqf = waqf_data.waqf_asset;
+                        let mut total_revolving_pct = 0.0;
+
+                        for alloc in allocations {
+                            total_revolving_pct +=
+                                alloc.allocations.temporary_revolving.unwrap_or(0.0);
+                        }
+
+                        let avg_revolving_pct = if !allocations.is_empty() {
+                            total_revolving_pct / allocations.len() as f64
+                        } else {
+                            0.0
+                        };
+
+                        let revolving_amt = (total_waqf * avg_revolving_pct) / 100.0;
+
+                        ic_cdk::println!(
+                            "[on_set_doc] Hybrid waqf - Total: {}, Avg Revolving %: {:.2}, Revolving Amount: {:.2}",
+                            total_waqf, avg_revolving_pct, revolving_amt
+                        );
+
+                        revolving_amt
+                    } else {
+                        waqf_data.waqf_asset
+                    }
+                } else {
+                    // Pure revolving waqf - use entire asset
+                    waqf_data.waqf_asset
+                };
+
+                if revolving_amount > 0.0 {
+                    let tranche_id = format!("tranche_initial_{}", current_time_nanos);
+                    let initial_tranche = ContributionTranche {
+                        id: tranche_id.clone(),
+                        amount: revolving_amount,
+                        contribution_date: current_time.clone(),
+                        maturity_date: maturity_date.clone(),
+                        is_returned: false,
+                        returned_date: None,
+                        status: Some("locked".to_string()),
+                        penalty_applied: None,
+                        rollover_origin_id: None,
+                        rollover_target_id: None,
+                        installment_payments: None,
+                        expiration_preference: revolving_details
+                            .default_expiration_preference
+                            .clone(),
+                        conversion_details: None,
+                    };
+
+                    ic_cdk::println!(
+                        "[on_set_doc] ✨ Creating initial tranche: ID={}, Amount={:.2}, Maturity in {} months",
+                        tranche_id,
+                        revolving_amount,
+                        revolving_details.lock_period_months
+                    );
+
+                    revolving_details.contribution_tranches = Some(vec![initial_tranche]);
+                    needs_update = true;
+                } else {
+                    ic_cdk::println!(
+                        "[on_set_doc] ⚠️ No revolving amount for waqf {}, skipping tranche creation",
+                        waqf_data.name
+                    );
+                }
+            }
+        }
+
+        // Persist our initialization back to the waqfs collection
+        if needs_update {
+            let updated_data = encode_doc_data(&waqf_data)
+                .map_err(|e| format!("Failed to encode updated waqf data: {}", e))?;
+
+            let set_doc_data = SetDoc {
+                data: updated_data,
+                description: context.data.data.after.description.clone(),
+                version: context.data.data.after.version,
+            };
+
+            let _ = set_doc("waqfs".to_string(), context.data.key.clone(), set_doc_data);
+
+            ic_cdk::println!(
+                "[on_set_doc] ✅ Waqf initialization complete for: {}",
+                waqf_data.name
+            );
         }
     }
-    
-    // Enhanced logging for audit purposes
+
+    // Enhanced logging for audit purposes (runs for create + update)
     ic_cdk::println!(
-        "Waqf {}: {} - Name: {}, Status: {}, Donor: {}, Initial Capital: {}", 
+        "Waqf {}: {} - Name: {}, Status: {}, Donor: {}, Initial Capital: {}",
         operation_type,
         context.data.key,
         waqf_data.name,
@@ -476,29 +767,6 @@ pub fn handle_waqf_changes(context: OnSetDocContext) -> std::result::Result<(), 
         waqf_data.donor.name,
         waqf_data.waqf_asset
     );
-    
-    // Log status-specific information
-    match waqf_data.status.as_str() {
-        "active" => {
-            ic_cdk::println!(
-                "IMPORTANT: Waqf activated - {} for {} (Initial Capital: {})", 
-                waqf_data.name, waqf_data.donor.name, waqf_data.waqf_asset
-            );
-        },
-        "completed" => {
-            ic_cdk::println!(
-                "INFO: Waqf completed - {} for {}", 
-                waqf_data.name, waqf_data.donor.name
-            );
-        },
-        "archived" => {
-            ic_cdk::println!(
-                "NOTICE: Waqf archived - {} for {}", 
-                waqf_data.name, waqf_data.donor.name
-            );
-        },
-        _ => {}
-    }
-    
+
     Ok(())
 }

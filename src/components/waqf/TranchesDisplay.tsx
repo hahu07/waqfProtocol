@@ -23,19 +23,25 @@ export function TranchesDisplay({ waqf, onReturnTranche }: TranchesDisplayProps)
   });
   
   const balance = calculateRevolvingBalance(waqf);
+  const notifications = waqf.revolvingDetails?.pendingNotifications ?? [];
   
   console.log('📊 TranchesDisplay - Calculated Balance:', {
     lockedCount: balance.lockedTranches.length,
     maturedCount: balance.maturedTranches.length,
+    scheduledCount: balance.scheduledTranches.length,
     returnedCount: balance.returnedTranches.length,
+    rolledOverCount: balance.rolledOverTranches.length,
     lockedBalance: balance.lockedBalance,
-    maturedBalance: balance.maturedBalance
+    maturedBalance: balance.maturedBalance,
+    scheduledBalance: balance.scheduledBalance
   });
   
   const allTranches = sortTranchesByMaturity([
     ...balance.lockedTranches,
     ...balance.maturedTranches,
-    ...balance.returnedTranches
+    ...balance.scheduledTranches,
+    ...balance.returnedTranches,
+    ...balance.rolledOverTranches,
   ]);
 
   const formatCurrency = (amount: number) => {
@@ -52,8 +58,12 @@ export function TranchesDisplay({ waqf, onReturnTranche }: TranchesDisplayProps)
         return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'matured':
         return 'bg-green-100 text-green-700 border-green-200';
+      case 'return_scheduled':
+        return 'bg-amber-100 text-amber-700 border-amber-200';
       case 'returned':
         return 'bg-gray-100 text-gray-500 border-gray-200';
+      case 'rolled_over':
+        return 'bg-purple-100 text-purple-700 border-purple-200';
     }
   };
 
@@ -63,15 +73,38 @@ export function TranchesDisplay({ waqf, onReturnTranche }: TranchesDisplayProps)
         return '🔒';
       case 'matured':
         return '✅';
+      case 'return_scheduled':
+        return '📆';
       case 'returned':
         return '↩️';
+      case 'rolled_over':
+        return '🌀';
     }
   };
 
   return (
     <div className="space-y-6">
+      {notifications.length > 0 && (
+        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+          <div className="flex items-start gap-3">
+            <span className="text-2xl">📣</span>
+            <div>
+              <p className="font-semibold text-purple-900">Recent Updates</p>
+              <ul className="mt-2 space-y-1 text-sm text-purple-700">
+                {notifications.map((message, index) => (
+                  <li key={`${message}-${index}`} className="flex gap-2">
+                    <span>•</span>
+                    <span>{message}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-2xl">🔒</span>
@@ -87,7 +120,16 @@ export function TranchesDisplay({ waqf, onReturnTranche }: TranchesDisplayProps)
             <span className="text-sm font-medium text-green-700">Matured</span>
           </div>
           <p className="text-2xl font-bold text-green-900">{formatCurrency(balance.maturedBalance)}</p>
-          <p className="text-xs text-green-600 mt-1">{balance.maturedTranches.length} ready to return</p>
+          <p className="text-xs text-green-600 mt-1">{balance.maturedTranches.length} ready to process</p>
+        </div>
+
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-2xl">📆</span>
+            <span className="text-sm font-medium text-amber-700">Scheduled</span>
+          </div>
+          <p className="text-2xl font-bold text-amber-900">{formatCurrency(balance.scheduledBalance)}</p>
+          <p className="text-xs text-amber-600 mt-1">{balance.scheduledTranches.length} in repayment</p>
         </div>
 
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
@@ -96,7 +138,9 @@ export function TranchesDisplay({ waqf, onReturnTranche }: TranchesDisplayProps)
             <span className="text-sm font-medium text-gray-700">Returned</span>
           </div>
           <p className="text-2xl font-bold text-gray-900">{formatCurrency(balance.returnedBalance)}</p>
-          <p className="text-xs text-gray-600 mt-1">{balance.returnedTranches.length} tranches</p>
+          <p className="text-xs text-gray-600 mt-1">
+            {balance.returnedTranches.length + balance.rolledOverTranches.length} completed
+          </p>
         </div>
       </div>
 
@@ -159,6 +203,27 @@ export function TranchesDisplay({ waqf, onReturnTranche }: TranchesDisplayProps)
                         <div className="flex items-center gap-2 text-sm text-gray-500">
                           <span>Returned:</span>
                           <span>{formatTrancheDate(tranche.returnedDate)}</span>
+                        </div>
+                      )}
+
+                      {tranche.status === 'rolled_over' && tranche.returnedDate && (
+                        <div className="flex items-center gap-2 text-sm text-purple-600">
+                          <span>Rolled Over:</span>
+                          <span>{formatTrancheDate(tranche.returnedDate)}</span>
+                        </div>
+                      )}
+
+                      {tranche.status === 'return_scheduled' && tranche.installmentPayments && (
+                        <div className="flex items-center gap-2 text-sm text-amber-600">
+                          <span>Installments:</span>
+                          <span>{tranche.installmentPayments.length} scheduled payouts</span>
+                        </div>
+                      )}
+
+                      {tranche.penaltyApplied !== undefined && tranche.penaltyApplied > 0 && (
+                        <div className="flex items-center gap-2 text-xs text-red-600">
+                          <span>Penalty:</span>
+                          <span>{formatCurrency(tranche.penaltyApplied)}</span>
                         </div>
                       )}
                     </div>

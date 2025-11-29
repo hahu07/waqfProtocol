@@ -49,8 +49,8 @@ export const CauseFormModal = ({
     exchangeRateToUSD: cause?.exchangeRateToUSD || 1650,
     supportedWaqfTypes: cause?.supportedWaqfTypes || [WaqfType.PERMANENT],
     investmentStrategy: cause?.investmentStrategy || {
-      assetAllocation: '60% Sukuk, 40% Equity',
-      expectedAnnualReturn: 7.0,
+      assetAllocation: '30% Traditional investments such as stock, sukuk, 70% Alternative Investment such as real estate, gold, etc',
+      expectedAnnualReturn: 9.0,
       distributionFrequency: 'quarterly'
     },
     consumableOptions: cause?.consumableOptions || {
@@ -59,9 +59,9 @@ export const CauseFormModal = ({
       defaultSpendingSchedule: 'phased'
     },
     revolvingOptions: cause?.revolvingOptions || {
-      minLockPeriodMonths: 12,
+      minLockPeriodMonths: 6,
       maxLockPeriodMonths: 120,
-      expectedReturnDuringPeriod: 35.0
+      expectedReturnDuringPeriod: 9.0
     }
   }));
 
@@ -94,10 +94,13 @@ export const CauseFormModal = ({
     const loadCategories = async () => {
       try {
         setLoadingCategories(true);
+        console.log('Loading categories...');
         const cats = await getCategories();
+        console.log('Categories loaded:', cats);
         setCategories(cats);
       } catch (error) {
         logger.error('Error loading categories', error);
+        console.error('Failed to load categories:', error);
       } finally {
         setLoadingCategories(false);
       }
@@ -111,10 +114,13 @@ export const CauseFormModal = ({
       if (formData.categoryId) {
         try {
           setLoadingSubcategories(true);
+          console.log('Loading subcategories for category:', formData.categoryId);
           const subs = await getSubcategoriesByCategoryId(formData.categoryId);
+          console.log('Subcategories loaded:', subs);
           setSubcategories(subs);
         } catch (error) {
           logger.error('Error loading subcategories', error);
+          console.error('Failed to load subcategories:', error);
         } finally {
           setLoadingSubcategories(false);
         }
@@ -147,8 +153,8 @@ export const CauseFormModal = ({
         exchangeRateToUSD: cause?.exchangeRateToUSD || 1650,
         supportedWaqfTypes: cause?.supportedWaqfTypes || [WaqfType.PERMANENT],
         investmentStrategy: cause?.investmentStrategy || {
-          assetAllocation: '60% Sukuk, 40% Equity',
-          expectedAnnualReturn: 7.0,
+          assetAllocation: '30% Traditional investments such as stock, sukuk, 70% Alternative Investment such as real estate, gold, etc',
+          expectedAnnualReturn: 9.0,
           distributionFrequency: 'quarterly'
         },
         consumableOptions: cause?.consumableOptions || {
@@ -157,9 +163,9 @@ export const CauseFormModal = ({
           defaultSpendingSchedule: 'phased'
         },
         revolvingOptions: cause?.revolvingOptions || {
-          minLockPeriodMonths: 12,
+          minLockPeriodMonths: 6,
           maxLockPeriodMonths: 120,
-          expectedReturnDuringPeriod: 35.0
+          expectedReturnDuringPeriod: 9.0
         }
       });
       setErrors({});
@@ -175,8 +181,10 @@ export const CauseFormModal = ({
     
     // Find current subcategory to get its icon
     const currentSubcategory = subcategories.find(sub => sub.id === formData.subcategoryId);
-    if (currentSubcategory) {
-      return [currentSubcategory.icon, ...commonIcons];
+    if (currentSubcategory && currentSubcategory.icon) {
+      // Add subcategory icon at the beginning and remove duplicates using Set
+      const allIcons = [currentSubcategory.icon, ...commonIcons];
+      return [...new Set(allIcons)];
     }
     
     return commonIcons;
@@ -576,9 +584,9 @@ export const CauseFormModal = ({
                     🎯 Suggested Icons:
                   </p>
                   <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
-                    {getIconSuggestions().map(icon => (
+                    {getIconSuggestions().map((icon, index) => (
                       <button
-                        key={icon}
+                        key={`icon-${index}-${icon}`}
                         type="button"
                         onClick={() => setFormData(prev => ({ ...prev, icon }))}
                         className={`p-3 rounded-xl border-2 transition-all duration-200 ${
@@ -612,6 +620,11 @@ export const CauseFormModal = ({
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
                       <span>Loading categories...</span>
                     </div>
+                  ) : categories.length === 0 ? (
+                    <div className="w-full px-4 py-3 border-2 border-red-200 rounded-xl bg-red-50 text-red-700">
+                      <div className="font-semibold mb-1">⚠️ No categories available</div>
+                      <p className="text-xs">Please seed categories first at /admin/seed-categories</p>
+                    </div>
                   ) : (
                     <select
                       value={formData.categoryId}
@@ -622,7 +635,9 @@ export const CauseFormModal = ({
                           subcategoryId: '' // Reset subcategory when main category changes
                         }));
                       }}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white"
+                      className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white ${
+                        errors.categoryId ? 'border-red-500' : 'border-gray-200'
+                      }`}
                       required
                     >
                       <option value="">Select a category...</option>
@@ -660,14 +675,17 @@ export const CauseFormModal = ({
                       <span>Loading subcategories...</span>
                     </div>
                   ) : subcategories.length === 0 ? (
-                    <div className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl bg-yellow-50 text-yellow-700">
-                      No subcategories available
+                    <div className="w-full px-4 py-3 border-2 border-red-200 rounded-xl bg-red-50 text-red-700">
+                      <div className="font-semibold mb-1">⚠️ No subcategories available</div>
+                      <p className="text-xs">This category has no subcategories. Please seed data first.</p>
                     </div>
                   ) : (
                     <select
                       value={formData.subcategoryId}
                       onChange={(e) => setFormData(prev => ({ ...prev, subcategoryId: e.target.value }))}
-                      className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white"
+                      className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all bg-white ${
+                        errors.subcategoryId ? 'border-red-500' : 'border-gray-200'
+                      }`}
                       required
                       disabled={!formData.categoryId}
                     >
@@ -759,72 +777,87 @@ export const CauseFormModal = ({
             {/* Waqf Type Configuration */}
             <div className="bg-gradient-to-br from-green-50 to-blue-50 p-6 rounded-xl border-2 border-green-100 space-y-4">
               <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                🏛️ Supported Waqf Types
+                🏛️ Waqf Type *
               </h3>
               <p className="text-sm text-gray-600">
-                Select which waqf models donors can use for this cause
+                Select the waqf model for this cause
               </p>
               
               <div className="space-y-3">
                 {/* Permanent Waqf */}
-                <label className="flex items-start gap-3 p-3 bg-white rounded-lg border-2 border-gray-200 hover:border-green-300 cursor-pointer transition-all">
+                <label className={`flex items-start gap-3 p-4 bg-white rounded-lg border-2 cursor-pointer transition-all ${
+                  formData.supportedWaqfTypes[0] === WaqfType.PERMANENT
+                    ? 'border-green-500 ring-4 ring-green-100 shadow-md'
+                    : 'border-gray-200 hover:border-green-300'
+                }`}>
                   <input
-                    type="checkbox"
-                    checked={formData.supportedWaqfTypes.includes(WaqfType.PERMANENT)}
-                    onChange={(e) => {
-                      const types = e.target.checked
-                        ? [...formData.supportedWaqfTypes, WaqfType.PERMANENT]
-                        : formData.supportedWaqfTypes.filter(t => t !== WaqfType.PERMANENT);
-                      setFormData(prev => ({ ...prev, supportedWaqfTypes: types }));
+                    type="radio"
+                    name="waqfType"
+                    checked={formData.supportedWaqfTypes[0] === WaqfType.PERMANENT}
+                    onChange={() => {
+                      setFormData(prev => ({ ...prev, supportedWaqfTypes: [WaqfType.PERMANENT] }));
                     }}
-                    className="mt-1 h-5 w-5 text-green-600 focus:ring-4 focus:ring-green-100 rounded"
+                    className="mt-1 h-5 w-5 text-green-600 focus:ring-4 focus:ring-green-100"
                   />
                   <div className="flex-1">
-                    <div className="font-semibold text-gray-800">Permanent Waqf</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      Principal preserved forever, only returns distributed
+                    <div className="font-semibold text-gray-800 flex items-center gap-2">
+                      <span className="text-2xl">💎</span>
+                      Permanent Waqf
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      Principal preserved forever, only returns distributed. Ideal for long-term sustainable impact.
                     </div>
                   </div>
                 </label>
                 
                 {/* Consumable Waqf */}
-                <label className="flex items-start gap-3 p-3 bg-white rounded-lg border-2 border-gray-200 hover:border-blue-300 cursor-pointer transition-all">
+                <label className={`flex items-start gap-3 p-4 bg-white rounded-lg border-2 cursor-pointer transition-all ${
+                  formData.supportedWaqfTypes[0] === WaqfType.TEMPORARY_CONSUMABLE
+                    ? 'border-blue-500 ring-4 ring-blue-100 shadow-md'
+                    : 'border-gray-200 hover:border-blue-300'
+                }`}>
                   <input
-                    type="checkbox"
-                    checked={formData.supportedWaqfTypes.includes(WaqfType.TEMPORARY_CONSUMABLE)}
-                    onChange={(e) => {
-                      const types = e.target.checked
-                        ? [...formData.supportedWaqfTypes, WaqfType.TEMPORARY_CONSUMABLE]
-                        : formData.supportedWaqfTypes.filter(t => t !== WaqfType.TEMPORARY_CONSUMABLE);
-                      setFormData(prev => ({ ...prev, supportedWaqfTypes: types }));
+                    type="radio"
+                    name="waqfType"
+                    checked={formData.supportedWaqfTypes[0] === WaqfType.TEMPORARY_CONSUMABLE}
+                    onChange={() => {
+                      setFormData(prev => ({ ...prev, supportedWaqfTypes: [WaqfType.TEMPORARY_CONSUMABLE] }));
                     }}
-                    className="mt-1 h-5 w-5 text-blue-600 focus:ring-4 focus:ring-blue-100 rounded"
+                    className="mt-1 h-5 w-5 text-blue-600 focus:ring-4 focus:ring-blue-100"
                   />
                   <div className="flex-1">
-                    <div className="font-semibold text-gray-800">Consumable Waqf</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      Principal + returns spent over time period
+                    <div className="font-semibold text-gray-800 flex items-center gap-2">
+                      <span className="text-2xl">⚡</span>
+                      Consumable Waqf
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      Principal + returns spent over time period. Best for time-bound projects and campaigns.
                     </div>
                   </div>
                 </label>
                 
                 {/* Revolving Waqf */}
-                <label className="flex items-start gap-3 p-3 bg-white rounded-lg border-2 border-gray-200 hover:border-purple-300 cursor-pointer transition-all">
+                <label className={`flex items-start gap-3 p-4 bg-white rounded-lg border-2 cursor-pointer transition-all ${
+                  formData.supportedWaqfTypes[0] === WaqfType.TEMPORARY_REVOLVING
+                    ? 'border-purple-500 ring-4 ring-purple-100 shadow-md'
+                    : 'border-gray-200 hover:border-purple-300'
+                }`}>
                   <input
-                    type="checkbox"
-                    checked={formData.supportedWaqfTypes.includes(WaqfType.TEMPORARY_REVOLVING)}
-                    onChange={(e) => {
-                      const types = e.target.checked
-                        ? [...formData.supportedWaqfTypes, WaqfType.TEMPORARY_REVOLVING]
-                        : formData.supportedWaqfTypes.filter(t => t !== WaqfType.TEMPORARY_REVOLVING);
-                      setFormData(prev => ({ ...prev, supportedWaqfTypes: types }));
+                    type="radio"
+                    name="waqfType"
+                    checked={formData.supportedWaqfTypes[0] === WaqfType.TEMPORARY_REVOLVING}
+                    onChange={() => {
+                      setFormData(prev => ({ ...prev, supportedWaqfTypes: [WaqfType.TEMPORARY_REVOLVING] }));
                     }}
-                    className="mt-1 h-5 w-5 text-purple-600 focus:ring-4 focus:ring-purple-100 rounded"
+                    className="mt-1 h-5 w-5 text-purple-600 focus:ring-4 focus:ring-purple-100"
                   />
                   <div className="flex-1">
-                    <div className="font-semibold text-gray-800">Revolving Waqf</div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      Principal returned to donor, returns distributed during term
+                    <div className="font-semibold text-gray-800 flex items-center gap-2">
+                      <span className="text-2xl">🔄</span>
+                      Revolving Waqf
+                    </div>
+                    <div className="text-sm text-gray-600 mt-1">
+                      Principal returned to donor after term, returns distributed during period. Great for investment-focused giving.
                     </div>
                   </div>
                 </label>
@@ -832,7 +865,7 @@ export const CauseFormModal = ({
             </div>
 
             {/* Conditional Configuration Sections */}
-            {formData.supportedWaqfTypes.includes(WaqfType.PERMANENT) && (
+            {formData.supportedWaqfTypes[0] === WaqfType.PERMANENT && (
               <div className="bg-green-50 p-5 rounded-xl border-2 border-green-100 space-y-4">
                 <h3 className="text-base font-semibold text-gray-800">💎 Investment Strategy (Permanent)</h3>
                 <div className="space-y-3">
@@ -851,7 +884,7 @@ export const CauseFormModal = ({
                         }
                       }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                      placeholder="e.g., 60% Sukuk, 40% Equity"
+                      placeholder="e.g., '30% Traditional investments such as stock, sukuk, 70% Alternative Investment such as real estate, gold, etc',"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -900,7 +933,7 @@ export const CauseFormModal = ({
               </div>
             )}
 
-            {formData.supportedWaqfTypes.includes(WaqfType.TEMPORARY_CONSUMABLE) && (
+            {formData.supportedWaqfTypes[0] === WaqfType.TEMPORARY_CONSUMABLE && (
               <div className="bg-blue-50 p-5 rounded-xl border-2 border-blue-100 space-y-4">
                 <h3 className="text-base font-semibold text-gray-800">⚡ Consumable Options</h3>
                 <div className="grid grid-cols-3 gap-3">
@@ -971,7 +1004,7 @@ export const CauseFormModal = ({
               </div>
             )}
 
-            {formData.supportedWaqfTypes.includes(WaqfType.TEMPORARY_REVOLVING) && (
+            {formData.supportedWaqfTypes[0] === WaqfType.TEMPORARY_REVOLVING && (
               <div className="bg-purple-50 p-5 rounded-xl border-2 border-purple-100 space-y-4">
                 <h3 className="text-base font-semibold text-gray-800">🔄 Revolving Options</h3>
                 <div className="grid grid-cols-3 gap-3">

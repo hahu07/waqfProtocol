@@ -12,8 +12,10 @@ mod admin_request_hooks;
 mod activity_log_hooks;
 mod donation_hooks;
 mod allocation_hooks;
+mod impact_event_hooks;
 pub mod waqf_types;
 pub mod waqf_hooks;
+pub mod impact_event_types;
 
 mod waqf_utils;
 
@@ -69,8 +71,14 @@ use crate::category_hooks::{
     handle_subcategory_changes,
 };
 
+use crate::impact_event_hooks::{
+    assert_impact_event_operations,
+    assert_impact_event_deletion,
+    handle_impact_event_changes,
+};
+
 // Main on_set_doc handler
-#[on_set_doc(collections = ["admins", "causes", "categories", "subcategories", "admin_requests", "activity_logs", "waqfs", "donations", "allocations"])]
+#[on_set_doc(collections = ["admins", "causes", "categories", "subcategories", "admin_requests", "activity_logs", "waqfs", "donations", "allocations", "impact_events"])]
 fn on_set_doc(context: OnSetDocContext) -> std::result::Result<(), String> {
     // Route to appropriate change handler based on collection
     match context.data.collection.as_str() {
@@ -101,16 +109,19 @@ fn on_set_doc(context: OnSetDocContext) -> std::result::Result<(), String> {
         "allocations" => {
             handle_allocation_changes(context)?
         },
+        "impact_events" => {
+            handle_impact_event_changes(context)?
+        },
         _ => {
             // Log unknown collection access
             ic_cdk::println!("Document change in unhandled collection: {}", context.data.collection);
         }
     }
-    
+
     Ok(())
 }
 
-#[assert_set_doc(collections = ["admins", "causes", "categories", "subcategories", "admin_requests", "activity_logs", "waqfs", "donations", "allocations"])]
+#[assert_set_doc(collections = ["admins", "causes", "categories", "subcategories", "admin_requests", "activity_logs", "waqfs", "donations", "allocations", "impact_events"])]
 fn assert_set_doc(context: AssertSetDocContext) -> std::result::Result<(), String> {
     // Route to appropriate assertion handler based on collection
     match context.data.collection.as_str() {
@@ -141,6 +152,9 @@ fn assert_set_doc(context: AssertSetDocContext) -> std::result::Result<(), Strin
         "allocations" => {
             assert_allocation_operations(context)
         },
+        "impact_events" => {
+            assert_impact_event_operations(context)
+        },
         _ => {
             // Log unknown collection validation attempt
             ic_cdk::println!("Validation attempt on unhandled collection: {}", context.data.collection);
@@ -149,7 +163,7 @@ fn assert_set_doc(context: AssertSetDocContext) -> std::result::Result<(), Strin
     }
 }
 
-#[assert_delete_doc(collections = ["admins", "causes", "categories", "subcategories", "admin_requests", "activity_logs", "waqfs", "donations", "allocations"])]
+#[assert_delete_doc(collections = ["admins", "causes", "categories", "subcategories", "admin_requests", "activity_logs", "waqfs", "donations", "allocations", "impact_events"])]
 fn assert_delete_doc(context: AssertDeleteDocContext) -> std::result::Result<(), String> {
     // Route to appropriate deletion assertion handler based on collection
     match context.data.collection.as_str() {
@@ -179,6 +193,9 @@ fn assert_delete_doc(context: AssertDeleteDocContext) -> std::result::Result<(),
         },
         "allocations" => {
             assert_allocation_deletion(context)
+        },
+        "impact_events" => {
+            assert_impact_event_deletion(context)
         },
         _ => {
             // Log unknown collection deletion attempt

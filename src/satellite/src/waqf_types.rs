@@ -30,12 +30,20 @@ pub struct ReportingPreferences {
 
 #[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct FinancialMetrics {
+    #[serde(alias = "totalDonations")]
     pub total_donations: f64,
+    #[serde(alias = "totalDistributed")]
     pub total_distributed: f64,
+    #[serde(alias = "currentBalance")]
     pub current_balance: f64,
+    #[serde(alias = "investmentReturns")]
     pub investment_returns: Vec<f64>,
+    #[serde(alias = "totalInvestmentReturn")]
     pub total_investment_return: f64,
+    #[serde(alias = "growthRate")]
     pub growth_rate: f64,
+    #[serde(alias = "causeAllocations")]
+    pub cause_allocations: std::collections::HashMap<String, f64>, // Amount allocated per cause
 }
 
 #[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -77,6 +85,40 @@ pub struct InstallmentSchedule {
 }
 
 #[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct InstallmentPayment {
+    pub id: String,
+    pub amount: f64,
+    pub due_date: String,
+    pub status: String,                  // "scheduled" | "paid" | "missed"
+    pub paid_date: Option<String>,
+}
+
+#[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum ExpirationAction {
+    Refund,              // Return principal to donor
+    Rollover,            // Extend for another lock period
+    ConvertPermanent,    // Convert to permanent waqf
+    ConvertConsumable,   // Convert to consumable waqf
+}
+
+#[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct TrancheExpirationPreference {
+    pub action: ExpirationAction,
+    pub rollover_months: Option<u32>,
+    pub rollover_cause_id: Option<String>,
+    pub consumable_schedule: Option<String>,  // "immediate" | "phased" | "milestone-based" | "ongoing"
+    pub consumable_duration: Option<u32>,
+}
+
+#[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ConversionDetails {
+    pub converted_at: String,
+    pub new_waqf_id: String,
+    pub target_waqf_type: String,  // "permanent" | "temporary_consumable"
+    pub notes: Option<String>,
+}
+
+#[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ContributionTranche {
     pub id: String,
     pub amount: f64,
@@ -84,6 +126,13 @@ pub struct ContributionTranche {
     pub maturity_date: String,
     pub is_returned: bool,
     pub returned_date: Option<String>,
+    pub status: Option<String>,                      // "locked" | "matured" | "return_scheduled" | "returned" | "rolled_over"
+    pub penalty_applied: Option<f64>,                // Penalty amount applied on early withdrawal
+    pub rollover_origin_id: Option<String>,          // If created via rollover, reference original tranche
+    pub rollover_target_id: Option<String>,          // If this tranche rolled over into another tranche
+    pub installment_payments: Option<Vec<InstallmentPayment>>,
+    pub expiration_preference: Option<TrancheExpirationPreference>,  // Expiration action preference
+    pub conversion_details: Option<ConversionDetails>,                // Details if converted to another waqf type
 }
 
 #[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -95,6 +144,10 @@ pub struct RevolvingWaqfDetails {
     pub early_withdrawal_penalty: Option<f64>, // Penalty percentage (e.g., 0.1 = 10%)
     pub early_withdrawal_allowed: bool,
     pub contribution_tranches: Option<Vec<ContributionTranche>>, // Track each contribution separately
+    pub auto_rollover_preference: Option<String>,   // "none" | "same_cause" | "cause_pool"
+    pub auto_rollover_target_cause: Option<String>, // Optional cause to target for rollover
+    pub pending_notifications: Option<Vec<String>>, // Pending notifications to surface to donor
+    pub default_expiration_preference: Option<TrancheExpirationPreference>, // Default expiration preference for new tranches
 }
 
 #[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -106,13 +159,17 @@ pub struct InvestmentStrategy {
 
 #[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct HybridAllocation {
+    #[serde(alias = "Permanent")]
     pub permanent: Option<f64>,             // Percentage allocated to permanent waqf
+    #[serde(alias = "TemporaryConsumable")]
     pub temporary_consumable: Option<f64>,  // Percentage allocated to consumable waqf
+    #[serde(alias = "TemporaryRevolving")]
     pub temporary_revolving: Option<f64>,   // Percentage allocated to revolving waqf
 }
 
 #[derive(CandidType, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct HybridCauseAllocation {
+    #[serde(alias = "causeId")]
     pub cause_id: String,
     pub allocations: HybridAllocation,
 }
@@ -129,9 +186,13 @@ pub struct WaqfData {
     pub id: String,
     pub name: String,
     pub description: String,
+    #[serde(alias = "waqfAsset")]
     pub waqf_asset: f64,
     pub donor: DonorProfile,
+    #[serde(alias = "selectedCauses")]
     pub selected_causes: Vec<String>,
+    #[serde(alias = "causeAllocation")]
+    pub cause_allocation: std::collections::HashMap<String, f64>, // Percentage allocation per cause
     pub status: String, // "active" | "paused" | "completed" | "inactive" | "archived" | "terminated" | "matured"
     pub is_donated: Option<bool>,
     pub notifications: NotificationPreferences,
@@ -167,6 +228,7 @@ pub struct DonationData {
     pub status: String, // "completed" | "pending" | "failed"
     pub transaction_id: Option<String>,
     pub donor_name: Option<String>,
+    pub lock_period_months: Option<u32>, // Optional custom lock period for this contribution
 }
 
 #[derive(CandidType, Serialize, Deserialize, Debug, Clone)]

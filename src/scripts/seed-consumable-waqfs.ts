@@ -11,7 +11,7 @@ const testConsumableWaqfs: Omit<WaqfProfile, 'id' | 'createdAt' | 'updatedAt'>[]
     name: 'Emergency Orphan Support Fund',
     description: 'Immediate financial assistance for 50 orphaned children covering food, clothing, and school supplies for 6 months',
     waqfAsset: 15000,
-    waqfType: 'TemporaryConsumable' as WaqfType,
+    waqfType: WaqfType.TEMPORARY_CONSUMABLE,
     isHybrid: false,
     donor: {
       name: 'Ahmed Al-Rahman',
@@ -61,7 +61,7 @@ const testConsumableWaqfs: Omit<WaqfProfile, 'id' | 'createdAt' | 'updatedAt'>[]
     name: 'Ramadan Iftar Program 2025',
     description: 'Provide daily iftar meals for 200 fasting families during the blessed month of Ramadan',
     waqfAsset: 8000,
-    waqfType: 'TemporaryConsumable' as WaqfType,
+    waqfType: WaqfType.TEMPORARY_CONSUMABLE,
     isHybrid: false,
     donor: {
       name: 'Fatima Hassan',
@@ -111,7 +111,7 @@ const testConsumableWaqfs: Omit<WaqfProfile, 'id' | 'createdAt' | 'updatedAt'>[]
     name: 'Winter Warmth Campaign',
     description: 'Ongoing monthly support providing warm clothing, blankets, and heating assistance to homeless families',
     waqfAsset: 24000,
-    waqfType: 'TemporaryConsumable' as WaqfType,
+    waqfType: WaqfType.TEMPORARY_CONSUMABLE,
     isHybrid: false,
     donor: {
       name: 'Ibrahim Khalil',

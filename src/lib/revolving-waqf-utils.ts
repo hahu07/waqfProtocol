@@ -4,27 +4,34 @@
  * Helper functions for managing contribution tranches in revolving waqfs
  */
 
-import type { WaqfProfile, ContributionTranche } from '@/types/waqfs';
+import type { WaqfProfile, ContributionTranche, InstallmentPayment } from '@/types/waqfs';
 
 export interface TrancheStatus {
   id: string;
   amount: number;
   contributionDate: string;
   maturityDate: string;
+  returnedDate?: string;
   isMatured: boolean;
   isReturned: boolean;
   daysUntilMaturity: number;
-  status: 'locked' | 'matured' | 'returned';
+  status: 'locked' | 'matured' | 'return_scheduled' | 'returned' | 'rolled_over';
+  penaltyApplied?: number;
+  rolloverTargetId?: string;
+  installmentPayments?: InstallmentPayment[];
 }
 
 export interface RevolvingWaqfBalance {
   totalPrincipal: number;
   lockedBalance: number;
   maturedBalance: number;
+  scheduledBalance: number;
   returnedBalance: number;
   lockedTranches: TrancheStatus[];
   maturedTranches: TrancheStatus[];
+  scheduledTranches: TrancheStatus[];
   returnedTranches: TrancheStatus[];
+  rolledOverTranches: TrancheStatus[];
   nextMaturityDate: string | null;
   nextMaturityAmount: number;
 }
@@ -53,9 +60,12 @@ function isTrancheMatured(maturityDate: string): boolean {
 export function getTrancheStatus(tranche: ContributionTranche): TrancheStatus {
   const isMatured = isTrancheMatured(tranche.maturityDate);
   const daysUntil = getDaysUntil(tranche.maturityDate);
+  const explicitStatus = tranche.status;
   
-  let status: 'locked' | 'matured' | 'returned' = 'locked';
-  if (tranche.isReturned) {
+  let status: TrancheStatus['status'] = 'locked';
+  if (explicitStatus) {
+    status = explicitStatus;
+  } else if (tranche.isReturned) {
     status = 'returned';
   } else if (isMatured) {
     status = 'matured';
@@ -66,10 +76,14 @@ export function getTrancheStatus(tranche: ContributionTranche): TrancheStatus {
     amount: tranche.amount,
     contributionDate: tranche.contributionDate,
     maturityDate: tranche.maturityDate,
+    returnedDate: tranche.returnedDate,
     isMatured,
     isReturned: tranche.isReturned,
     daysUntilMaturity: daysUntil,
-    status
+    status,
+    penaltyApplied: tranche.penaltyApplied,
+    rolloverTargetId: tranche.rolloverTargetId,
+    installmentPayments: tranche.installmentPayments,
   };
 }
 
@@ -97,13 +111,17 @@ export function calculateRevolvingBalance(waqf: WaqfProfile): RevolvingWaqfBalan
   // Categorize tranches
   const lockedTranches = trancheStatuses.filter(t => t.status === 'locked');
   const maturedTranches = trancheStatuses.filter(t => t.status === 'matured');
+  const scheduledTranches = trancheStatuses.filter(t => t.status === 'return_scheduled');
   const returnedTranches = trancheStatuses.filter(t => t.status === 'returned');
+  const rolledOverTranches = trancheStatuses.filter(t => t.status === 'rolled_over');
   
   // Calculate balances
   const totalPrincipal = waqf.financial.totalDonations;
   const lockedBalance = lockedTranches.reduce((sum, t) => sum + t.amount, 0);
   const maturedBalance = maturedTranches.reduce((sum, t) => sum + t.amount, 0);
-  const returnedBalance = returnedTranches.reduce((sum, t) => sum + t.amount, 0);
+  const scheduledBalance = scheduledTranches.reduce((sum, t) => sum + t.amount, 0);
+  const returnedBalance = [...returnedTranches, ...rolledOverTranches]
+    .reduce((sum, t) => sum + t.amount, 0);
   
   // Find next maturity
   const upcomingTranches = lockedTranches
@@ -114,10 +132,13 @@ export function calculateRevolvingBalance(waqf: WaqfProfile): RevolvingWaqfBalan
     totalPrincipal,
     lockedBalance,
     maturedBalance,
+    scheduledBalance,
     returnedBalance,
     lockedTranches,
     maturedTranches,
+    scheduledTranches,
     returnedTranches,
+    rolledOverTranches,
     nextMaturityDate: nextMaturity?.maturityDate || null,
     nextMaturityAmount: nextMaturity?.amount || 0
   };

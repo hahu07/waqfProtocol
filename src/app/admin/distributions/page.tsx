@@ -9,6 +9,7 @@ import { listDocs } from '@junobuild/core';
 import type { WaqfProfile, ConsumableWaqfDetails, SpendingSchedule } from '@/types/waqfs';
 import { getCompletionStatus, calculateUpdatedDistribution } from '@/lib/consumable-contribution-handler';
 import { logger } from '@/lib/logger';
+import { isConsumableWaqf } from '@/lib/waqf-type-utils';
 
 interface DistributionSummary {
   waqf: WaqfProfile;
@@ -67,17 +68,14 @@ export default function DistributionsPage() {
           // Handle both snake_case and camelCase from backend
           const rawWaqf = w as WaqfProfile & { waqf_type?: string };
           const waqfType = rawWaqf.waqf_type || w.waqfType;
-          const isConsumable = 
-            waqfType === 'temporary_consumable' || 
-            waqfType === 'TEMPORARY_CONSUMABLE' ||
-            waqfType === 'TemporaryConsumable';
           
+          const isConsumable = isConsumableWaqf(waqfType);
           const isActiveOrCompleted = w.status === 'active' || w.status === 'completed';
           
           logger.info('Checking waqf', { 
             id: w.id, 
             name: w.name, 
-            waqfType: waqfType, 
+            waqfType: waqfType,
             status: w.status,
             isConsumable,
             isActiveOrCompleted,

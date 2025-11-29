@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { WaqfProfile } from "@/types/waqfs";
 import { Pie } from 'react-chartjs-2';
 import {
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { logger } from '@/lib/logger';
 import { TranchesDisplay } from './TranchesDisplay';
 import { calculateRevolvingBalance } from '@/lib/revolving-waqf-utils';
+import { processAutoRolloverTranches } from '@/lib/api/tranche-operations';
 
 // Register Chart.js components
 ChartJS.register(ArcElement, Tooltip, Legend);
@@ -59,6 +60,15 @@ export function EnhancedWaqfDashboard({ profile, onAddFunds, onDistribute, onRet
   
   // Calculate revolving balance breakdown if applicable (after waqfType is defined)
   const revolvingBalance = waqfType === 'temporary_revolving' ? calculateRevolvingBalance(profile) : null;
+
+  useEffect(() => {
+    if (waqfType === 'temporary_revolving' && profile.id) {
+      processAutoRolloverTranches(profile.id).catch((error: unknown) => {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        logger.warn('Auto rollover processing failed on dashboard load', { waqfId: profile.id, error: errorMessage });
+      });
+    }
+  }, [profile.id, waqfType]);
 
   logger.debug('💵 Calculated Metrics:', { waqfAsset, balance, totalDonations, totalDistributed, growthRate, totalInvestmentReturn });
   logger.debug('🔀 Is Hybrid:', { data: profile.isHybrid });
@@ -135,13 +145,65 @@ export function EnhancedWaqfDashboard({ profile, onAddFunds, onDistribute, onRet
 
   logger.debug('📊 Waqf Type Allocation:', { data: waqfTypeAllocation });
 
-  const formatCurrency = (amount: number) => {
+  const portfolioDetails = profile.portfolioDetails;
+  const hasPortfolio = !!portfolioDetails && (portfolioDetails.allocations?.length ?? 0) > 0;
+
+  const portfolioMetrics = hasPortfolio && portfolioDetails ? {
+    totalCommitted: portfolioDetails.totalCommitted ?? 0,
+    totalDistributed: portfolioDetails.totalDistributed ?? 0,
+    totalContributed: portfolioDetails.totalContributed ?? portfolioDetails.totalCommitted ?? 0,
+    completion: portfolioDetails.completionPercentage ?? 0,
+    beneficiaries: portfolioDetails.totalBeneficiaries ?? 0,
+    nextRebalanceDate: portfolioDetails.nextRebalanceDate,
+    impact: portfolioDetails.impactMetrics,
+  } : null;
+
+  const portfolioAllocations = hasPortfolio && portfolioDetails ? portfolioDetails.allocations.map(allocation => {
+    const cause = profile.supportedCauses?.find(c => c.id === allocation.causeId);
+    const target = allocation.targetBalance || 0;
+    const current = allocation.currentBalance || 0;
+    const variance = target - current;
+    const progress = target > 0 ? Math.min(100, Math.max(0, (current / target) * 100)) : 0;
+    return {
+      id: allocation.allocationId,
+      waqfId: allocation.waqfId,
+      causeId: allocation.causeId,
+      causeName: cause?.name || 'Unassigned Cause',
+      icon: cause?.icon || '🤝',
+      allocationPercentage: allocation.allocationPercentage,
+      currentBalance: current,
+      targetBalance: target,
+      variance,
+      progress,
+      lockUntil: allocation.lockUntil,
+      lastAdjustedAt: allocation.lastAdjustedAt,
+    };
+  }) : [];
+
+  const handlePortfolioRebalance = () => {
+    logger.info('Portfolio rebalance requested', { waqfId: profile.id });
+    alert('🧺 Portfolio rebalancing controls are coming soon. For now, please contact support to adjust allocations.');
+  };
+
+  const formatCurrency = (amount: number, currency: 'NGN' | 'USD' = 'NGN') => {
+    if (currency === 'NGN') {
+      return new Intl.NumberFormat('en-NG', {
+        style: 'currency',
+        currency: 'NGN',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0,
+      }).format(amount);
+    }
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
+  };
+
+  const convertToUSD = (amountNGN: number, exchangeRate: number = 1650) => {
+    return amountNGN / exchangeRate;
   };
 
   const formatPercentage = (value: number) => {
@@ -267,6 +329,9 @@ export function EnhancedWaqfDashboard({ profile, onAddFunds, onDistribute, onRet
           <p className="text-3xl font-bold text-gray-900 mb-1">
             {formatCurrency(waqfType === 'temporary_consumable' ? totalDonations : waqfAsset)}
           </p>
+          <p className="text-xs text-gray-500 mb-1">
+            ≈ {formatCurrency(convertToUSD(waqfType === 'temporary_consumable' ? totalDonations : waqfAsset), 'USD')}
+          </p>
           <p className="text-xs text-gray-500">
             {waqfType === 'permanent' ? 'Original endowment amount' :
              waqfType === 'temporary_consumable' ? 'Funds to be consumed' :
@@ -289,6 +354,9 @@ export function EnhancedWaqfDashboard({ profile, onAddFunds, onDistribute, onRet
             <p className="text-3xl font-bold text-gray-900 mb-1">
               {formatCurrency(totalDonations)}
             </p>
+            <p className="text-xs text-gray-500 mb-1">
+              ≈ {formatCurrency(convertToUSD(totalDonations), 'USD')}
+            </p>
             <p className="text-xs text-gray-500">
               Ongoing contributions invested
             </p>
@@ -308,6 +376,9 @@ export function EnhancedWaqfDashboard({ profile, onAddFunds, onDistribute, onRet
             <p className="text-sm font-medium text-gray-600 mb-2">Funds Spent</p>
             <p className="text-3xl font-bold text-gray-900 mb-1">
               {formatCurrency(totalDistributed)}
+            </p>
+            <p className="text-xs text-gray-500 mb-1">
+              ≈ {formatCurrency(convertToUSD(totalDistributed), 'USD')}
             </p>
             <p className="text-xs text-gray-500">
               {profile.consumableDetails?.endDate ? 
@@ -755,19 +826,33 @@ export function EnhancedWaqfDashboard({ profile, onAddFunds, onDistribute, onRet
             </p>
           </div>
 
-          {/* Distribution Rate */}
-          <div className="text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <span className="text-2xl">📊</span>
-              <p className="text-3xl font-bold text-gray-900">
-                {totalDonations > 0 ? formatPercentage((totalDistributed / totalDonations) * 100) : '0.0%'}
+          {hasPortfolio ? (
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <span className="text-2xl">🧺</span>
+                <p className="text-3xl font-bold text-gray-900">
+                  {formatPercentage(portfolioMetrics?.completion ?? 0)}
+                </p>
+              </div>
+              <p className="text-sm text-gray-600 font-medium">Portfolio Coverage</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {formatCurrency(portfolioMetrics?.totalDistributed ?? 0)} distributed across portfolio
               </p>
             </div>
-            <p className="text-sm text-gray-600 font-medium">Distribution Rate</p>
-            <p className="text-xs text-gray-500 mt-1">
-              {formatCurrency(totalDistributed)} distributed
-            </p>
-          </div>
+          ) : (
+            <div className="text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <span className="text-2xl">📊</span>
+                <p className="text-3xl font-bold text-gray-900">
+                  {totalDonations > 0 ? formatPercentage((totalDistributed / totalDonations) * 100) : '0.0%'}
+                </p>
+              </div>
+              <p className="text-sm text-gray-600 font-medium">Distribution Rate</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {formatCurrency(totalDistributed)} distributed
+              </p>
+            </div>
+          )}
 
           {/* Year Established */}
           <div className="text-center">
@@ -785,6 +870,182 @@ export function EnhancedWaqfDashboard({ profile, onAddFunds, onDistribute, onRet
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Portfolio Overview Panel */}
+      <div className="bg-white rounded-2xl shadow-xl border border-indigo-100 p-6">
+        {hasPortfolio ? (
+          <>
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  🧺 Consumable Portfolio Overview
+                </h3>
+                <p className="text-sm text-gray-600">
+                  Track your diversified consumable waqf bundle and rebalance allocations as needed
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  variant="outline"
+                  className="border-indigo-500 text-indigo-600 hover:bg-indigo-50"
+                  onClick={handlePortfolioRebalance}
+                >
+                  ♻️ Rebalance Allocations
+                </Button>
+                <Button
+                  variant="outline"
+                  className="border-emerald-500 text-emerald-600 hover:bg-emerald-50"
+                >
+                  📈 View Impact Report
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+                <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Total Committed</p>
+                <p className="text-2xl font-bold text-indigo-900 mt-2">{formatCurrency(portfolioMetrics?.totalCommitted ?? 0)}</p>
+              </div>
+              <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-100">
+                <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Distributed</p>
+                <p className="text-2xl font-bold text-emerald-900 mt-2">{formatCurrency(portfolioMetrics?.totalDistributed ?? 0)}</p>
+              </div>
+              <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
+                <p className="text-xs font-semibold text-amber-600 uppercase tracking-wide">Beneficiaries</p>
+                <p className="text-2xl font-bold text-amber-900 mt-2">{portfolioMetrics?.beneficiaries ?? 0}</p>
+              </div>
+              <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
+                <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide">Next Check-In</p>
+                <p className="text-lg font-semibold text-purple-900 mt-2">
+                  {portfolioMetrics?.nextRebalanceDate
+                    ? new Date(portfolioMetrics.nextRebalanceDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                    : 'Not scheduled'}
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-hidden border border-gray-100 rounded-xl">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Cause
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Allocation
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Current Balance
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Target Balance
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Variance
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Progress
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Lock Until
+                    </th>
+                    <th scope="col" className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Last Adjusted
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {portfolioAllocations.map((allocation) => (
+                    <tr key={allocation.id} className="hover:bg-indigo-50/40 transition-colors">
+                      <td className="px-4 py-4 text-sm text-gray-900">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center text-xl">
+                            {allocation.icon}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900">{allocation.causeName}</p>
+                            <p className="text-xs text-gray-500">{allocation.allocationPercentage.toFixed(1)}% of portfolio</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-900">
+                        {allocation.allocationPercentage.toFixed(1)}%
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-900">
+                        {formatCurrency(allocation.currentBalance)}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-900">
+                        {formatCurrency(allocation.targetBalance)}
+                      </td>
+                      <td className={`px-4 py-4 text-sm font-semibold ${allocation.variance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {allocation.variance < 0 ? '-' : '+'}{formatCurrency(Math.abs(allocation.variance))}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-900">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 bg-gray-200 rounded-full h-2">
+                            <div
+                              className={`h-2 rounded-full ${allocation.progress >= 95 ? 'bg-emerald-500' : allocation.progress >= 70 ? 'bg-amber-500' : 'bg-red-500'}`}
+                              style={{ width: `${allocation.progress}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-xs font-semibold text-gray-700 w-10 text-right">
+                            {allocation.progress.toFixed(0)}%
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-500">
+                        {allocation.lockUntil
+                          ? new Date(allocation.lockUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                          : 'Flexible'}
+                      </td>
+                      <td className="px-4 py-4 text-xs text-gray-500">
+                        {allocation.lastAdjustedAt
+                          ? new Date(allocation.lastAdjustedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {portfolioMetrics?.impact && (
+              <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white border border-indigo-100 rounded-xl p-4 shadow-sm">
+                  <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wide">Beneficiaries Supported</p>
+                  <p className="text-2xl font-bold text-indigo-900 mt-2">{portfolioMetrics.impact.beneficiariesSupported}</p>
+                </div>
+                <div className="bg-white border border-emerald-100 rounded-xl p-4 shadow-sm">
+                  <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Projects Delivered</p>
+                  <p className="text-2xl font-bold text-emerald-900 mt-2">{portfolioMetrics.impact.projectsCompleted}</p>
+                </div>
+                <div className="bg-white border border-purple-100 rounded-xl p-4 shadow-sm">
+                  <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide">Impact Score</p>
+                  <p className="text-2xl font-bold text-purple-900 mt-2">{portfolioMetrics.impact.impactScore ?? '—'}</p>
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="text-center py-12">
+            <div className="mx-auto w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-3xl mb-4">
+              🧺
+            </div>
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No Portfolio Configured</h3>
+            <p className="text-sm text-gray-600 max-w-md mx-auto">
+              Create a consumable waqf portfolio to diversify your impact across multiple causes and enable mid-cycle rebalancing.
+            </p>
+            <div className="mt-4 flex justify-center">
+              <Button
+                variant="outline"
+                className="border-indigo-500 text-indigo-600 hover:bg-indigo-50"
+              >
+                ➕ Create Portfolio Bundle
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
       
       {/* Tranches Display for Revolving Waqfs */}

@@ -12,13 +12,18 @@ export async function getCategories(): Promise<Category[]> {
       filter: {}
     });
     
-    return docs.items
+    const categories = docs.items
       .map(doc => doc.data)
       .filter(cat => cat.isActive)
       .sort((a, b) => a.sortOrder - b.sortOrder);
+    
+    logger.info(`Fetched ${categories.length} active categories`);
+    return categories;
   } catch (error) {
     logger.error('Error fetching categories', error);
-    throw new Error('Failed to fetch categories');
+    console.error('Categories fetch error:', error);
+    // Return empty array instead of throwing to prevent breaking the UI
+    return [];
   }
 }
 
@@ -50,13 +55,18 @@ export async function getSubcategoriesByCategoryId(categoryId: string): Promise<
       filter: {}
     });
     
-    return docs.items
+    const subcategories = docs.items
       .map(doc => doc.data)
       .filter(sub => sub.categoryId === categoryId && sub.isActive)
       .sort((a, b) => a.sortOrder - b.sortOrder);
+    
+    logger.info(`Fetched ${subcategories.length} active subcategories for category ${categoryId}`);
+    return subcategories;
   } catch (error) {
     logger.error('Error fetching subcategories', error);
-    throw new Error('Failed to fetch subcategories');
+    console.error('Subcategories fetch error:', error);
+    // Return empty array instead of throwing to prevent breaking the UI
+    return [];
   }
 }
 

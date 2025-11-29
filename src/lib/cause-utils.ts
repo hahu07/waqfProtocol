@@ -2,7 +2,7 @@
 import { setDoc, getDoc, listDocs, deleteDoc } from '@junobuild/core';
 import { logActivity } from './activity-utils';
 import { canApproveCauses, canManageCauses } from './admin-utils';
-import type { Cause } from '@/types/waqfs';
+import type { Cause, Donation } from '@/types/waqfs';
 import { randomUUID } from './crypto-polyfill';
 import { logger } from './logger';
 
@@ -18,10 +18,10 @@ export const createCause = async (cause: Omit<Cause, 'id' | 'createdAt' | 'updat
     if (userId && !await canManageCauses(userId)) {
       throw new Error('Permission denied: Only Waqf Managers can create causes');
     }
-    
+
     const id = randomUUID();
     const now = new Date().toISOString();
-    
+
     await setDoc({
       collection: CAUSES_COLLECTION,
       doc: {
@@ -39,7 +39,7 @@ export const createCause = async (cause: Omit<Cause, 'id' | 'createdAt' | 'updat
         }
       }
     });
-    
+
     // Log the activity if user info is provided
     if (userId && userName) {
       await logActivity(
@@ -53,11 +53,64 @@ export const createCause = async (cause: Omit<Cause, 'id' | 'createdAt' | 'updat
         }
       );
     }
-    
+
     return id;
   } catch (error) {
     logger.error('Error creating cause', { error, causeName: cause.name });
     throw new Error('Failed to create cause');
+  }
+};
+
+/**
+ * Create a cause for testing/seeding purposes (bypasses approval workflow)
+ * This allows creating causes that are already approved and active
+ */
+export const createCauseForTesting = async (cause: Omit<Cause, 'id' | 'createdAt' | 'updatedAt'>, userId?: string, userName?: string) => {
+  try {
+    const id = randomUUID();
+    const now = new Date().toISOString();
+
+    // For testing, we respect the status and isActive values passed in
+    // But we enforce the backend rule: pending causes cannot be active
+    const status = cause.status || 'pending';
+    const isActive = status === 'approved' ? (cause.isActive ?? true) : false;
+
+    await setDoc({
+      collection: CAUSES_COLLECTION,
+      doc: {
+        key: id,
+        data: {
+          ...cause,
+          id,
+          createdAt: now,
+          updatedAt: now,
+          isActive,
+          status,
+          followers: cause.followers || 0,
+          fundsRaised: cause.fundsRaised || 0,
+          sortOrder: cause.sortOrder || 0
+        }
+      }
+    });
+
+    // Log the activity if user info is provided
+    if (userId && userName) {
+      await logActivity(
+        'cause_created',
+        userId,
+        userName,
+        {
+          targetId: id,
+          targetName: cause.name,
+          status
+        }
+      );
+    }
+
+    return id;
+  } catch (error) {
+    logger.error('Error creating test cause', { error, causeName: cause.name });
+    throw new Error('Failed to create test cause');
   }
 };
 
@@ -239,11 +292,22 @@ export const deleteCause = async (id: string, userId?: string, userName?: string
  */
 export const listCauses = async (): Promise<Cause[]> => {
   try {
-    const { items } = await listDocs<Cause>({
+    console.log('listCauses - fetching from collection:', CAUSES_COLLECTION);
+    const result = await listDocs<Cause>({
       collection: CAUSES_COLLECTION
     });
-    return items.map(item => item.data as Cause);
+    console.log('listCauses - raw result:', result);
+    console.log('listCauses - items count:', result.items?.length || 0);
+
+    const causes = result.items.map(item => {
+      console.log('listCauses - processing item:', item);
+      return item.data as Cause;
+    });
+
+    console.log('listCauses - final causes:', causes);
+    return causes;
   } catch (error) {
+    console.error('listCauses - ERROR:', error);
     logger.error('Error listing causes', { error });
     throw new Error('Failed to list causes');
   }
@@ -254,9 +318,22 @@ export const listCauses = async (): Promise<Cause[]> => {
  */
 export const listActiveCauses = async (): Promise<Cause[]> => {
   try {
+    console.log('listActiveCauses - calling listCauses...');
     const causes = await listCauses();
-    return causes.filter(cause => cause.isActive && cause.status === 'approved');
+    console.log('listActiveCauses - all causes:', causes);
+    console.log('listActiveCauses - all causes count:', causes.length);
+
+    const activeCauses = causes.filter(cause => {
+      const isActive = cause.isActive && cause.status === 'approved';
+      console.log(`listActiveCauses - ${cause.name}: isActive=${cause.isActive}, status=${cause.status}, included=${isActive}`);
+      return isActive;
+    });
+
+    console.log('listActiveCauses - active causes:', activeCauses);
+    console.log('listActiveCauses - active causes count:', activeCauses.length);
+    return activeCauses;
   } catch (error) {
+    console.error('listActiveCauses - ERROR:', error);
     logger.error('Error listing active causes', { error });
     throw new Error('Failed to list active causes');
   }
@@ -419,6 +496,25 @@ export const incrementCauseFollowers = async (id: string) => {
   } catch (error) {
     logger.error('Error incrementing cause followers', { error, id });
     throw new Error(`Failed to increment followers for cause ${id}`);
+  }
+};
+
+/**
+ * List all donations across the platform
+ */
+export const listAllDonations = async (): Promise<Donation[]> => {
+  try {
+    logger.debug('Fetching all donations from donations collection');
+    const result = await listDocs<Donation>({
+      collection: 'donations'
+    });
+    
+    const donations = result.items.map(item => item.data as Donation);
+    logger.debug(`Fetched ${donations.length} donations`);
+    return donations;
+  } catch (error) {
+    logger.error('Error listing all donations', { error });
+    throw new Error('Failed to list donations');
   }
 };
 

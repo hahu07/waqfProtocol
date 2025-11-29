@@ -4,10 +4,9 @@
 import { useAuth } from "@/components/auth/AuthProvider";
 import { useFetchWaqfData } from "@/hooks/useWaqfData";
 import { useWaqfCreatorCheck } from "@/hooks/useWaqfCreatorCheck";
-import { EnhancedWaqfDashboard } from "@/components/waqf/EnhancedWaqfDashboard";
+import { PortfolioWaqfDashboard } from "@/components/waqf/PortfolioWaqfDashboard";
 import { Button } from "@/components/ui/button";
-import { WaqfForm } from "@/components/waqf/WaqfForm";
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { ReportModal } from '@/components/waqf/reportModal';
 import { WaqfDeedViewer } from '@/components/waqf/WaqfDeedViewer';
@@ -18,6 +17,7 @@ import { logger } from '@/lib/logger';
 import { canAcceptContribution, getCompletionStatus } from '@/lib/consumable-contribution-handler';
 import { returnTranche } from '@/lib/api/tranche-operations';
 import { AddFundsModal } from '@/components/waqf/AddFundsModal';
+import { TranchesDisplay } from '@/components/waqf/TranchesDisplay';
 
 
 export default function Page() {
@@ -27,6 +27,7 @@ export default function Page() {
   const [showReport, setShowReport] = useState(false);
   const [showDeedViewer, setShowDeedViewer] = useState(false);
   const [showAddFundsModal, setShowAddFundsModal] = useState(false);
+  const [hasFixedAllocations, setHasFixedAllocations] = useState(false);
   const { waqf, waqfDoc, waqfs, loading: dataLoading, error: dataError, refresh, createWaqf, updateWaqf, recordDonation } = useFetchWaqfData();
   const [showForm, setShowForm] = useState(false);
   const [editMode, setEditMode] = useState(false);
@@ -35,6 +36,7 @@ export default function Page() {
   const [availableCauses, setAvailableCauses] = useState<Cause[]>([]);
   const [causesLoading, setCausesLoading] = useState(true);
   const [causesError, setCausesError] = useState<Error | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Get the first waqf from the list (user's waqf)
   const selectedWaqf = waqfs && waqfs.length > 0 ? waqfs[selectedWaqfIndex] : waqf;
@@ -99,6 +101,78 @@ export default function Page() {
     fetchCauses();
   }, [authLoading, roleCheckLoading, authError]);
 
+  // Helper function to refresh with loading indicator
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await refresh();
+    } finally {
+      // Keep indicator visible for at least 500ms for better UX
+      setTimeout(() => setIsRefreshing(false), 500);
+    }
+  }, [refresh]);
+
+  // Disabled: Too aggressive auto-refresh
+  // Users can manually refresh if needed using the refresh button
+  // Auto-refresh only happens every 5 minutes now (see below)
+
+  // Periodic refresh every 5 minutes for updates (reduced from 30s)
+  useEffect(() => {
+    if (authLoading || roleCheckLoading || authError) return;
+
+    const intervalId = setInterval(async () => {
+      logger.debug('Periodic refresh: updating waqf data');
+      await handleRefresh();
+    }, 300000); // 5 minutes (300000ms)
+
+    return () => clearInterval(intervalId);
+  }, [handleRefresh, authLoading, roleCheckLoading, authError]);
+
+  // Auto-fix null hybridAllocations
+  useEffect(() => {
+    const fixNullHybridAllocations = async () => {
+      if (!userWaqf || !userWaqf.isHybrid || hasFixedAllocations) return;
+      
+      // Check if hybridAllocations has null values
+      const hasNullValues = userWaqf.hybridAllocations?.some(alloc => {
+        const allocsAny = alloc.allocations as any;
+        return allocsAny?.permanent === null || 
+               allocsAny?.temporary_consumable === null ||
+               allocsAny?.Permanent === null || 
+               allocsAny?.TemporaryConsumable === null;
+      });
+      
+      if (!hasNullValues) return;
+      
+      logger.warn('Detected null hybridAllocations, fixing...');
+      
+      // Reconstruct hybridAllocations with default 100% consumable for each cause
+      const fixedHybridAllocations = userWaqf.supportedCauses?.map(cause => ({
+        causeId: cause.id,
+        allocations: {
+          Permanent: 0,
+          TemporaryConsumable: 100,  // Default to consumable
+          TemporaryRevolving: 0
+        }
+      }));
+      
+      if (fixedHybridAllocations) {
+        try {
+          setHasFixedAllocations(true); // Set before updating to prevent loops
+          await updateWaqf(userWaqf.id, { hybridAllocations: fixedHybridAllocations });
+          logger.info('Fixed null hybridAllocations, page will refresh shortly');
+          // Delay refresh to prevent rapid updates
+          setTimeout(() => refresh(), 1000);
+        } catch (error) {
+          logger.error('Failed to fix hybridAllocations', { error });
+          setHasFixedAllocations(false); // Reset on error
+        }
+      }
+    };
+    
+    fixNullHybridAllocations();
+  }, [userWaqf, hasFixedAllocations, updateWaqf, refresh]);
+
   // Enhanced loading state with skeletons
   if (authLoading || roleCheckLoading || dataLoading) return (
     <div className="px-4 sm:px-6 py-8">
@@ -155,10 +229,41 @@ export default function Page() {
         <div className="px-4 sm:px-6 py-6">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Your Waqf Portfolio</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">Your Waqf Portfolio</h1>
+                {isRefreshing && (
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-sm font-semibold">
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Updating...
+                  </div>
+                )}
+              </div>
               <p className="text-gray-600 text-sm sm:text-base">Manage your perpetual charitable endowments</p>
             </div>
             <div className="flex flex-wrap gap-2 sm:gap-3">
+              <Button 
+                onClick={handleRefresh}
+                variant="outline"
+                className="flex-1 sm:flex-none"
+                style={{ borderColor: '#6b7280', color: '#6b7280' }}
+                title="Refresh data"
+                disabled={isRefreshing}
+              >
+                {isRefreshing ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Refreshing...
+                  </span>
+                ) : (
+                  '🔄 Refresh'
+                )}
+              </Button>
               <Button 
                 onClick={() => router.push('/waqf/reports')}
                 variant="outline"
@@ -176,15 +281,7 @@ export default function Page() {
                 🌍 Impact
               </Button>
               <Button 
-                onClick={() => {
-                  if (!canCreateMore) {
-                    alert(`Maximum limit reached! You can create up to ${MAX_WAQFS} waqfs.`);
-                    return;
-                  }
-                  setEditMode(false);
-                  setEditingWaqf(null);
-                  setShowForm(true);
-                }}
+                onClick={() => router.push('/waqf/build-portfolio')}
                 className="flex-1 sm:flex-none"
                 style={{ 
                   background: canCreateMore ? 'linear-gradient(to right, #2563eb, #9333ea)' : '#d1d5db',
@@ -194,7 +291,7 @@ export default function Page() {
                 }}
                 disabled={!canCreateMore}
               >
-                ➕ Create Waqf {waqfs && waqfs.length > 0 ? `(${waqfs.length}/${MAX_WAQFS})` : ''}
+                ➕ Build Portfolio {waqfs && waqfs.length > 0 ? `(${waqfs.length}/${MAX_WAQFS})` : ''}
               </Button>
             </div>
           </div>
@@ -382,51 +479,38 @@ export default function Page() {
               </div>
               
               {/* Dashboard */}
-              <EnhancedWaqfDashboard 
+              <PortfolioWaqfDashboard 
                 profile={userWaqf}
                 onAddFunds={() => {
                   logger.debug('Add funds clicked', { waqfId: userWaqf.id, waqfType: userWaqf.waqfType });
                   setShowAddFundsModal(true);
                 }}
-                onDistribute={() => {
-                  logger.debug('Distribute clicked');
-                  // TODO: Implement distribution modal
-                  alert('Distribution feature coming soon!');
-                }}
-                onReturnTranche={async (trancheId: string) => {
-                  logger.debug('Return tranche clicked', { waqfId: userWaqf.id, trancheId });
-                  
-                  const confirm = window.confirm(
-                    '🔄 Return Matured Funds?\n\n' +
-                    'This will return the matured tranche amount to you. ' +
-                    'The funds will be removed from your waqf balance.\n\n' +
-                    'Proceed with return?'
-                  );
-                  
-                  if (!confirm) {
-                    logger.debug('Tranche return cancelled by user');
-                    return;
-                  }
-                  
-                  try {
-                    const result = await returnTranche(userWaqf.id, trancheId);
-                    
-                    if (result.success) {
-                      alert('✅ Tranche returned successfully!\n\nThe funds have been removed from your waqf balance.');
-                      logger.info('Tranche returned successfully', { waqfId: userWaqf.id, trancheId });
-                      
-                      // Refresh data to show updated state
-                      await refresh();
-                    } else {
-                      throw new Error(result.error || 'Failed to return tranche');
-                    }
-                  } catch (error) {
-                    const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-                    logger.error('Failed to return tranche', { error: errorMsg });
-                    alert(`❌ Failed to return tranche: ${errorMsg}`);
-                  }
-                }}
+                onViewDetails={() => setShowDeedViewer(true)}
               />
+              
+              {/* Tranches Display for Revolving Waqfs */}
+              {((typeof userWaqf.waqfType === 'string' && (userWaqf.waqfType === 'TemporaryRevolving' || userWaqf.waqfType === 'temporary_revolving')) || 
+                (userWaqf.isHybrid && userWaqf.revolvingDetails?.contributionTranches && userWaqf.revolvingDetails.contributionTranches.length > 0)) && (
+                <div className="mt-6">
+                  <TranchesDisplay 
+                    waqf={userWaqf}
+                    onReturnTranche={async (trancheId) => {
+                      try {
+                        const result = await returnTranche(userWaqf.id, trancheId);
+                        if (result.success) {
+                          alert('✅ Tranche returned successfully!');
+                          await handleRefresh();
+                        } else {
+                          alert(`❌ Failed to return tranche: ${result.error}`);
+                        }
+                      } catch (error) {
+                        logger.error('Error returning tranche', { error });
+                        alert('❌ An error occurred while returning the tranche');
+                      }
+                    }}
+                  />
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-12 text-center">
@@ -434,14 +518,14 @@ export default function Page() {
                 <div className="w-20 h-20 mx-auto mb-6 rounded-full flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #2563eb, #9333ea)' }}>
                   <span className="text-4xl">🏛️</span>
                 </div>
-                <h3 className="text-xl font-bold text-gray-900 mb-2">No Waqf Profile Yet</h3>
-                <p className="text-gray-600 mb-6">Start your journey of perpetual charity by creating your first Waqf endowment</p>
+                <h3 className="text-xl font-bold text-gray-900 mb-2">No Waqf Portfolio Yet</h3>
+                <p className="text-gray-600 mb-6">Start your journey of perpetual charity by building your first diverse Waqf portfolio</p>
                 <Button 
-                  onClick={() => setShowForm(true)}
+                  onClick={() => router.push('/waqf/build-portfolio')}
                   className="px-8 py-3"
                   style={{ background: 'linear-gradient(to right, #2563eb, #9333ea)', border: 'none' }}
                 >
-                  ➕ Create Your First Waqf
+                  🎯 Build Your First Portfolio
                 </Button>
               </div>
             </div>
@@ -474,12 +558,12 @@ export default function Page() {
               onClose={() => setShowDeedViewer(false)}
             />
             
-            <AddFundsModal
+              <AddFundsModal
               isOpen={showAddFundsModal}
               onClose={() => setShowAddFundsModal(false)}
               waqf={userWaqf}
-              onSubmit={async (amount: number, customLockPeriod?: number) => {
-                logger.debug('Processing add funds', { waqfId: userWaqf.id, amount, customLockPeriod });
+              onSubmit={async (amount: number, customAllocations?: { [causeId: string]: number }, lockPeriodMonths?: number) => {
+                logger.debug('Processing add funds', { waqfId: userWaqf.id, amount, customAllocations });
                 
                 try {
                   // For consumable waqfs, check if they can accept contributions
@@ -497,36 +581,81 @@ export default function Page() {
                     }
                   }
                   
-                  // Record the donation
+                  // Calculate how funds are allocated to each cause
+                  // Use custom allocations if provided, otherwise use existing portfolio allocation
+                  const allocatedCauses: { [causeId: string]: number } = {};
+                  const updatedCauseAllocations = { ...userWaqf.financial.causeAllocations };
+                  
+                  userWaqf.selectedCauses.forEach(causeId => {
+                    const percentage = customAllocations 
+                      ? (customAllocations[causeId] || 0)
+                      : (userWaqf.causeAllocation[causeId] || 0);
+                    const causeAmount = (amount * percentage) / 100;
+                    
+                    if (causeAmount > 0) {
+                      allocatedCauses[causeId] = causeAmount;
+                      // Add to existing cause allocation
+                      updatedCauseAllocations[causeId] = (updatedCauseAllocations[causeId] || 0) + causeAmount;
+                    }
+                  });
+                  
+                  logger.info('Calculated cause allocations', { allocatedCauses, updatedCauseAllocations });
+                  
+                  // Record the donation with cause allocations
                   await recordDonation({
                     waqfId: userWaqf.id,
                     amount: amount,
                     currency: 'USD',
                     date: new Date().toISOString(),
                     status: 'completed',
-                    donorName: userWaqf.donor.name
+                    donorName: userWaqf.donor.name,
+                    allocatedCauses,
+                    lockPeriodMonths,
                   });
                   
                   logger.info('Donation recorded, now updating waqf financial metrics');
                   
-                  // Update the waqf's financial metrics
+                  // Update the waqf's financial metrics including cause allocations
+                  // Note: waqfAsset (principal) is immutable and cannot be updated
+                  const newBalance = userWaqf.financial.currentBalance + amount;
                   const updatedFinancial = {
                     ...userWaqf.financial,
                     totalDonations: userWaqf.financial.totalDonations + amount,
-                    currentBalance: userWaqf.financial.currentBalance + amount
+                    currentBalance: newBalance,
+                    causeAllocations: updatedCauseAllocations
                   };
                   
-                  await updateWaqf(userWaqf.id, {
-                    financial: updatedFinancial
+                  // Recalculate causeAllocation percentages based on new total
+                  const updatedCauseAllocation: { [causeId: string]: number } = {};
+                  userWaqf.selectedCauses.forEach(causeId => {
+                    const causeAmount = updatedCauseAllocations[causeId] || 0;
+                    updatedCauseAllocation[causeId] = newBalance > 0 ? (causeAmount / newBalance) * 100 : 0;
                   });
                   
-                  const newBalance = updatedFinancial.currentBalance;
+                  logger.info('Recalculated cause allocation percentages', { updatedCauseAllocation, newBalance });
                   
-                  alert(`✅ Successfully added $${amount} to your waqf!\n\nNew Balance: $${newBalance.toFixed(2)}`);
-                  logger.info('Funds added successfully', { 
+                  // Ensure hybridAllocations are maintained (if not set, keep existing or initialize)
+                  const updatedHybridAllocations = userWaqf.isHybrid && userWaqf.hybridAllocations 
+                    ? userWaqf.hybridAllocations 
+                    : undefined;
+                  
+                  await updateWaqf(userWaqf.id, {
+                    financial: updatedFinancial,
+                    causeAllocation: updatedCauseAllocation,
+                    ...(updatedHybridAllocations && { hybridAllocations: updatedHybridAllocations })
+                  });
+                  
+                  const causesCount = Object.keys(allocatedCauses).length;
+                  const allocationMode = customAllocations ? 'custom' : 'portfolio';
+                  
+                  const formatNGN = (amt: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 0 }).format(amt);
+                  alert(`✅ Successfully added ${formatNGN(amount)} to your portfolio!\n\nNew Balance: ${formatNGN(newBalance)}\nDistributed across ${causesCount} cause${causesCount > 1 ? 's' : ''}${customAllocations ? ' (custom allocation)' : ''}`);
+                  logger.info('Funds added successfully', {
                     waqfId: userWaqf.id, 
                     amount, 
-                    newBalance 
+                    newBalance,
+                    allocatedCauses,
+                    allocationMode
                   });
                   
                   // Refresh the waqf data

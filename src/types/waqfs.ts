@@ -213,6 +213,17 @@ export interface Cause {
     minDurationMonths: number;
     maxDurationMonths: number;
     defaultSpendingSchedule: SpendingSchedule;
+    defaultPortfolioConfig?: {
+      enablePortfolioCreation: boolean;
+      suggestedBundles?: {
+        name: string;
+        description: string;
+        allocations: {
+          causeId: string;
+          allocationPercentage: number;
+        }[];
+      }[];
+    };
   };
   /**
    * Configuration for revolving waqf options
@@ -277,6 +288,10 @@ export interface Donation {
    * Name of the donor (optional, can be anonymous)
    */
   donorName?: string;
+  /**
+   * Optional custom lock period for this specific contribution (months)
+   */
+  lockPeriodMonths?: number;
 }
 
 /**
@@ -480,8 +495,142 @@ export enum WaqfType {
 export type SpendingSchedule = 'immediate' | 'phased' | 'milestone-based' | 'ongoing';
 
 /**
- * Interface representing consumable temporary waqf configuration
+ * Portfolio type discriminator
  */
+export type PortfolioType = 'consumable' | 'returns';
+
+/**
+ * Portfolio allocation change event
+ */
+export interface PortfolioAllocationChange {
+  id: string;
+  allocationId: string;
+  previousPercentage: number;
+  newPercentage: number;
+  trigger: 'donor_request' | 'system_alert' | 'emergency_response' | 'scheduled_rebalance';
+  notes?: string;
+}
+
+/**
+ * Portfolio rebalance event record
+ */
+export interface PortfolioRebalanceEvent {
+  id: string;
+  timestamp: string;
+  requestedBy?: string;
+  reason: string;
+  changes: PortfolioAllocationChange[];
+}
+
+/**
+ * Portfolio allocation to a cause
+ */
+export interface PortfolioAllocation {
+  allocationId: string;
+  causeId: string;
+  allocationPercentage: number;
+  currentBalance: number;
+  targetBalance: number;
+  lockUntil?: string;
+  lastAdjustedAt?: string;
+}
+
+/**
+ * Portfolio impact metrics
+ */
+export interface PortfolioImpactMetrics {
+  beneficiariesSupported: number;
+  projectsCompleted: number;
+  householdsServed?: number;
+  impactScore?: number;
+}
+
+/**
+ * Base portfolio interface (shared fields)
+ */
+interface BasePortfolio {
+  id: string;
+  name: string;
+  description: string;
+  ownerId: string;
+  participatingWaqfs: string[];
+  allocations: PortfolioAllocation[];
+  rebalanceHistory: PortfolioRebalanceEvent[];
+  impactMetrics?: PortfolioImpactMetrics;
+  tags?: string[];
+  createdAt: string;
+  updatedAt?: string;
+}
+
+/**
+ * Consumable Portfolio - for temporary consumable waqfs
+ * Principal + returns are both spent over time
+ */
+export interface ConsumablePortfolio extends BasePortfolio {
+  portfolioType: 'consumable';
+  allowedWaqfTypes: ['temporary_consumable'];
+  
+  // Consumable-specific metrics
+  totalCommitted: number;
+  totalDistributed: number;
+  totalContributed?: number;
+  totalBeneficiaries?: number;
+  completionPercentage?: number;
+  targetCompletionDate?: string;
+  nextRebalanceDate?: string;
+}
+
+/**
+ * Returns Portfolio - for permanent and revolving waqfs
+ * Only returns are distributed, principal is preserved/locked
+ */
+export interface ReturnsPortfolio extends BasePortfolio {
+  portfolioType: 'returns';
+  allowedWaqfTypes: ['permanent', 'temporary_revolving'];
+  
+  // Returns-specific metrics
+  totalPrincipal: number;           // Sum of all waqf principals (locked/preserved)
+  availableReturns: number;         // Current returns available for distribution
+  projectedAnnualReturns: number;   // Expected yearly returns
+  totalReturnsDistributed: number;  // Historical returns distributed
+  nextDistributionDate?: string;
+  lastDistributionDate?: string;
+}
+
+/**
+ * Union type for all portfolio types
+ */
+export type Portfolio = ConsumablePortfolio | ReturnsPortfolio;
+
+/**
+ * Portfolio membership configuration (shared)
+ */
+interface BasePortfolioMembership {
+  portfolioId: string;
+  preferredRebalanceCadence?: 'weekly' | 'monthly' | 'quarterly' | 'annually';
+  enableRebalanceAlerts?: boolean;
+}
+
+/**
+ * Portfolio membership for consumable waqfs
+ */
+export interface ConsumablePortfolioMembership extends BasePortfolioMembership {
+  portfolioType: 'consumable';
+  allowUrgentOverrides?: boolean;
+}
+
+/**
+ * Portfolio membership for revolving/permanent waqfs
+ */
+export interface ReturnsPortfolioMembership extends BasePortfolioMembership {
+  portfolioType: 'returns';
+}
+
+/**
+ * Union type for portfolio membership
+ */
+export type PortfolioMembership = ConsumablePortfolioMembership | ReturnsPortfolioMembership;
+
 export interface ConsumableWaqfDetails {
   /**
    * How the funds will be spent
@@ -521,6 +670,72 @@ export interface ConsumableWaqfDetails {
    * Minimum amount to distribute monthly (for ongoing schedules)
    */
   minimumMonthlyDistribution?: number;
+  
+  /**
+   * Optional portfolio linkage for diversified baskets
+   */
+  portfolioMembership?: ConsumablePortfolioMembership;
+}
+
+/**
+ * Expiration action for matured tranches
+ */
+export type ExpirationAction = 
+  | 'refund'             // Return principal to donor
+  | 'rollover'           // Extend for another lock period
+  | 'convert_permanent'  // Convert to permanent waqf
+  | 'convert_consumable'; // Convert to consumable waqf
+
+/**
+ * Tranche expiration preference configuration
+ */
+export interface TrancheExpirationPreference {
+  /**
+   * Action to take when tranche matures
+   */
+  action: ExpirationAction;
+  /**
+   * Number of months to extend if action is 'rollover'
+   */
+  rolloverMonths?: number;
+  /**
+   * Target cause ID if action is 'rollover' (can differ from original)
+   */
+  rolloverCauseId?: string;
+  /**
+   * Spending schedule if converting to consumable waqf
+   */
+  consumableSchedule?: SpendingSchedule;
+  /**
+   * Duration in months if converting to consumable waqf
+   */
+  consumableDuration?: number;
+  /**
+   * Investment strategy if converting to permanent waqf
+   */
+  permanentInvestmentStrategy?: InvestmentStrategy;
+}
+
+/**
+ * Details about tranche conversion (if converted)
+ */
+export interface ConversionDetails {
+  /**
+   * Timestamp when conversion occurred
+   */
+  convertedAt: string;
+  /**
+   * ID of the new waqf created from conversion
+   */
+  newWaqfId: string;
+  /**
+   * Type of waqf created (permanent or temporary_consumable)
+   */
+  targetWaqfType: WaqfType;
+  /**
+   * Notes about the conversion
+   */
+  notes?: string;
 }
 
 /**
@@ -551,6 +766,60 @@ export interface ContributionTranche {
    * Date when the tranche was returned (if applicable)
    */
   returnedDate?: string;
+  /**
+   * Current status of the tranche lifecycle
+   */
+  status?: 'locked' | 'matured' | 'return_scheduled' | 'returned' | 'rolled_over';
+  /**
+   * Monetary penalty applied during early withdrawal, if any
+   */
+  penaltyApplied?: number;
+  /**
+   * The tranche this contribution originated from via rollover
+   */
+  rolloverOriginId?: string;
+  /**
+   * Identifier of the tranche created from rolling over this tranche
+   */
+  rolloverTargetId?: string;
+  /**
+   * Scheduled installment payments for returning principal
+   */
+  installmentPayments?: InstallmentPayment[];
+  /**
+   * Expiration preference for this tranche
+   */
+  expirationPreference?: TrancheExpirationPreference;
+  /**
+   * Conversion details if this tranche was converted to another waqf type
+   */
+  conversionDetails?: ConversionDetails;
+}
+
+/**
+ * Represents a scheduled installment payment for a tranche
+ */
+export interface InstallmentPayment {
+  /**
+   * Unique installment identifier
+   */
+  id: string;
+  /**
+   * Amount scheduled for this installment
+   */
+  amount: number;
+  /**
+   * Due date for the installment (nanosecond timestamp)
+   */
+  dueDate: string;
+  /**
+   * Current status of the installment
+   */
+  status: 'scheduled' | 'paid' | 'missed';
+  /**
+   * Timestamp when the installment was paid
+   */
+  paidDate?: string;
 }
 
 /**
@@ -588,6 +857,26 @@ export interface RevolvingWaqfDetails {
    * Array of contribution tranches (each with its own maturity date)
    */
   contributionTranches?: ContributionTranche[];
+  /**
+   * Automatic rollover preference for matured tranches
+   */
+  autoRolloverPreference?: 'none' | 'same_cause' | 'cause_pool';
+  /**
+   * Optional cause to target when rolling matured tranches
+   */
+  autoRolloverTargetCause?: string;
+  /**
+   * Pending notifications generated by revolving waqf actions
+   */
+  pendingNotifications?: string[];
+  /**
+   * Optional portfolio linkage for returns distribution
+   */
+  portfolioMembership?: ReturnsPortfolioMembership;
+  /**
+   * Default expiration preference for new tranches (if not specified per-tranche)
+   */
+  defaultExpirationPreference?: TrancheExpirationPreference;
 }
 
 /**
@@ -606,6 +895,10 @@ export interface InvestmentStrategy {
    * How often returns are distributed
    */
   distributionFrequency: 'monthly' | 'quarterly' | 'annually';
+  /**
+   * Optional portfolio linkage for returns distribution
+   */
+  portfolioMembership?: ReturnsPortfolioMembership;
 }
 
 /**
@@ -718,6 +1011,14 @@ export interface WaqfProfile {
    * Investment strategy for permanent portion
    */
   investmentStrategy?: InvestmentStrategy;
+  /**
+   * Additional configuration options for waqf operations
+   */
+  configuration?: {
+    enablePortfolioRebalancing?: boolean;
+    allowMidCycleSwitching?: boolean;
+    rebalanceApprovalRequired?: boolean;
+  };
   
   // Donor and basic info
   donor: DonorProfile;
